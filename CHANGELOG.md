@@ -1,5 +1,87 @@
 # Changelog
 
+## 0.4.0-alpha.2 — acquisition rework, real survival loop (1.21.11)
+
+This is the first alpha that survives **from nothing**: chop → planks → table → tools → mine →
+smelt → better tools. Everything below was verified in a real 1.21.11 Fabric client.
+
+### Added
+- **Loot-table driven material discovery** (`BlockDrops`): reads the vanilla
+  `data/minecraft/loot_table/blocks/*.json` through the classpath, so iron ore and deepslate
+  iron ore (and modded ores) are understood without hand-written maps.
+- **Item families** (`ItemFamilies`): built from vanilla item tags — any log counts as wood,
+  any planks as planks, stone/deepslate as stone-tool material.
+- **Requirement-graph planner** (`AcquireTask`): collects every demand, merges counts, and
+  emits one batched pass ("mine 10 logs, then craft 3× planks") instead of
+  mine-craft-mine-craft interleaving. Demands iterate to a fixed point before yields are fixed.
+- **Milestone staging**: iron tool = wooden pickaxe → stone pickaxe → iron pickaxe, each stage
+  planned independently against the current inventory.
+- **Estimation with slack**: raw materials are mined with a buffer (hard floor of 10 logs);
+  shortfalls are re-mined to the exact missing amount, not inflated.
+- **Re-plan on failure**: a craft/smelt that cannot finish recomputes what is actually missing
+  from the live inventory, up to a bounded number of times.
+- **Deep descent**: staircase/vertical digging with bedrock/fluid/large-drop guards, used only
+  when the target ore family is not already nearby; the rest of movement stays with Baritone.
+- **Placed-block recycling** (`PlacedBlocks`): remembers every crafting table/furnace it placed
+  and mines it back **as soon as the remaining plan no longer needs it**.
+- **Loot-safe placement**: clears a spot before placing, walks elsewhere if there is no room,
+  and treats "a table is already nearby" as success.
+- **Cooking data generated from the game jar** (`tools/gen-smelting.ps1`): smelting/blasting/
+  smoking/campfire tables regenerated from `data/minecraft/recipe/*.json` (raw iron → iron ingot).
+- **OpenAI-compatible endpoints**: any base URL (`/v1` handled), custom auth header, automatic
+  `max_tokens` / `max_completion_tokens` fallback, tolerant response parsing.
+- **Combat improvements borrowed from KillAura's engineering, mob-only**: threat-weighted target
+  selection (creeper/skeleton first, low HP finish), human-like smooth aiming (≤22°/tick, swing
+  only when aligned), no hitting through walls, weapon switching across the whole inventory with
+  swap-back after combat, and **eating takes priority over attacking**.
+- **Diagnostics**: `.xd why <item>` prints candidate plans, per-item sources and planner notes;
+  `.xd dig <n>`; updated `.xd base` / `.xd header`.
+
+### Fixed
+- Craft steps only crafted once regardless of the planned count.
+- `SMELT` passed the ingredient name instead of the output name.
+- Mining completion counted the exact item id, so chopping spruce never satisfied "need 10 oak logs".
+- Ore tags resolved to deepslate variants when only stone was around (and vice versa).
+- Crafting grid was not cleared between attempts, producing "wrong recipe" junk items.
+- Interacting with a crafting table 5–6 blocks away silently failed; it now walks over first.
+- Butler's stuck detection fought mining/placement and cancelled tasks.
+- Baritone `#mine` and the mod's own `goto` were cancelling each other during acquisition.
+
+### Tooling
+- `tools/new-world.mjs` (fresh test world from a template `level.dat`),
+  `tools/watch-test.ps1` (a test run returns the moment it settles),
+  `tools/gen-smelting.ps1`, `tools/scan-meteor.cjs` (module survey),
+  `docs/meteor-feature-survey.md` (what we borrow from Meteor Client and what we refuse to).
+
+## 0.3.0-alpha.1 — perception layer
+
+### Added
+- **Perception layer** (`Perception`): the model now gets a light-level indicator, a one-line
+  threat summary and a live event feed in every snapshot.
+- New query actions: `look` (what am I facing), `scan <block>` (where/how many nearby),
+  `danger` (hostiles with distance, health and creeper fuse), `containers` (chests, furnaces,
+  tables around), `path` (task/plan state, stuck detection), `drops` (items on the ground),
+  `players` (who is nearby and what they hold).
+- `.xd see` prints exactly what the perception layer feeds the model — handy for debugging.
+- Event notes from plan failures, flee interrupts and block-in, so re-planning has context.
+
+### Rationale
+Instead of a programmatic action language, we thickened perception: a linear loop that always
+sees fresh state re-plans cheaply, without paying for a sandboxed script VM.
+
+## 0.2.0-alpha.1 — plugin actions
+
+### Added
+- **Plugin action API** (`io.github.xiaod.deepseekcompanion.api.ActionProvider`): other mods can
+  register their own actions through the `deepseekcompanion:actions` entrypoint (or
+  `ActionRegistry.register`). The model sees them in its action catalogue; arguments are
+  validated by the plugin; calls are logged, and `dangerous()` actions are flagged.
+- `enablePluginActions` switch: with it off, plugin actions are neither advertised nor parsed.
+
+### Changed
+- `Intent` carries an optional plugin action id, so the closed-enum pipeline and plugin
+  actions share one validation path.
+
 ## 0.1.0-alpha.1 — first public alpha (1.21.11)
 
 First release of the 1.21.11 port. Everything below is verified in a real client unless
@@ -40,32 +122,3 @@ marked otherwise.
 - Combat tuning was done on flat ground versus zombies; skeletons and creepers are code-complete
   but only lightly exercised.
 - No long-term memory across sessions.
-
-## 0.2.0-alpha.1 — plugin actions
-
-### Added
-- **Plugin action API** (`io.github.xiaod.deepseekcompanion.api.ActionProvider`): other mods can
-  register their own actions through the `deepseekcompanion:actions` entrypoint (or
-  `ActionRegistry.register`). The model sees them in its action catalogue; arguments are
-  validated by the plugin; calls are logged, and `dangerous()` actions are flagged.
-- `enablePluginActions` switch: with it off, plugin actions are neither advertised nor parsed.
-
-### Changed
-- `Intent` carries an optional plugin action id, so the closed-enum pipeline and plugin
-  actions share one validation path.
-
-## 0.3.0-alpha.1 — perception layer
-
-### Added
-- **Perception layer** (`Perception`): the model now gets a light-level indicator, a one-line
-  threat summary and a live event feed in every snapshot.
-- New query actions: `look` (what am I facing), `scan <block>` (where/how many nearby),
-  `danger` (hostiles with distance, health and creeper fuse), `containers` (chests, furnaces,
-  tables around), `path` (task/plan state, stuck detection), `drops` (items on the ground),
-  `players` (who is nearby and what they hold).
-- `.xd see` prints exactly what the perception layer feeds the model — handy for debugging.
-- Event notes from plan failures, flee interrupts and block-in, so re-planning has context.
-
-### Rationale
-Instead of a programmatic action language, we thickened perception: a linear loop that always
-sees fresh state re-plans cheaply, without paying for a sandboxed script VM.

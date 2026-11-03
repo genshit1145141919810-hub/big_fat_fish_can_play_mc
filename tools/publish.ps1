@@ -1,37 +1,66 @@
-# publish.ps1 - build artifacts and push them to GitHub / Modrinth / CurseForge.
+# publish.ps1 - build artifacts and upload them to GitHub / Modrinth / CurseForge.
 #
 # Credentials come from environment variables (never hardcode them):
-#   GITHUB_TOKEN, GITHUB_REPO (owner/name)
-#   MODRINTH_TOKEN, MODRINTH_PROJECT (project id or slug)
-#   CURSEFORGE_TOKEN, CURSEFORGE_PROJECT (numeric project id)
+#   GITHUB_TOKEN, GITHUB_REPO            owner/name
+#   MODRINTH_TOKEN, MODRINTH_PROJECT     project id or slug
+#   CURSEFORGE_TOKEN, CURSEFORGE_PROJECT numeric project id
 #
-# Without a given platform's variables the script just reports what is missing and
-# continues with the others, so a partial setup still works.
+# Examples:
+#   $env:MODRINTH_TOKEN='mrp_xxx'; $env:MODRINTH_PROJECT='big-fat-fish-can-play-mc'
+#   powershell -File tools\publish.ps1 -Version 0.4.0-alpha.2 -SkipGitHub -Proxy ''
+#
+# Add -DryRun to print exactly what would be sent without touching the network.
 param(
-    [string]$Version = '0.1.0-alpha.1',
+    [string]$Version = '0.4.0-alpha.2',
     [string]$Jar = '',
-    [string]$Changelog = 'D:\Chat\deepseek-companion\CHANGELOG.md',
-    [string]$Proxy = 'http://127.0.0.1:7890',
+    [string]$Changelog = '',
+    [string]$Description = '',
+    [string]$Proxy = '',
+    [string]$GameVersion = '1.21.11',
     [switch]$SkipGitHub,
     [switch]$SkipModrinth,
-    [switch]$SkipCurseForge
+    [switch]$SkipCurseForge,
+    [switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
-$root = 'D:\Chat\deepseek-companion'
-if (-not $Jar) { $Jar = Join-Path $root "build\libs\deepseek-companion-$Version.jar" }
-if (-not (Test-Path $Jar)) { throw "jar not found: $Jar (build first)" }
+$root = Split-Path -Parent $PSScriptRoot
+if (-not $Jar) { $Jar = Join-Path $root "build\libs\big-fat-fish-can-play-mc-$Version.jar" }
+if (-not $Changelog) { $Changelog = Join-Path $root 'CHANGELOG.md' }
+if (-not $Description) { $Description = Join-Path $root 'docs\modrinth-description.md' }
+if (-not (Test-Path $Jar)) { throw "jar not found: $Jar (build first: gradlew build)" }
 
+# Release notes: the section for this version, falling back to the whole file.
 $body = ''
 if (Test-Path $Changelog) {
     $body = Get-Content $Changelog -Raw
-    # keep the section for this version if present
     $marker = "## $Version"
     $idx = $body.IndexOf($marker)
-    if ($idx -ge 0) { $body = $body.Substring($idx) }
+    if ($idx -ge 0) {
+        $body = $body.Substring($idx)
+        $next = $body.IndexOf("`n## ", 3)
+        if ($next -gt 0) { $body = $body.Substring(0, $next) }
+    }
 }
+$displayName = "Big Fat Fish Can Play MC $Version"
+$sha1 = (Get-FileHash $Jar -Algorithm SHA1).Hash.ToLower()
+$sha512 = (Get-FileHash $Jar -Algorithm SHA512).Hash.ToLower()
+$fileName = [System.IO.Path]::GetFileName($Jar)
 
 function Write-Step($text) { Write-Host "== $text" -ForegroundColor Cyan }
+function Invoke-Api {
+    param([string]$Uri, [hashtable]$Headers, $Body, [string]$ContentType, [string]$Method = 'Post')
+    if ($Proxy) {
+        return Invoke-RestMethod -Method $Method -Uri $Uri -Headers $Headers -Body $Body -ContentType $ContentType -Proxy $Proxy
+    }
+    return Invoke-RestMethod -Method $Method -Uri $Uri -Headers $Headers -Body $Body -ContentType $ContentType
+}
+
+Write-Step 'artifact'
+Write-Host "  jar    : $Jar"
+Write-Host "  size   : $((Get-Item $Jar).Length) bytes"
+Write-Host "  sha1   : $sha1"
+Write-Host "  version: $Version ($GameVersion / fabric / alpha)"
 
 # ---------------------------------------------------------------- GitHub release
 if (-not $SkipGitHub) {
@@ -39,43 +68,49 @@ if (-not $SkipGitHub) {
     $token = $env:GITHUB_TOKEN
     $repo = $env:GITHUB_REPO
     if (-not $token -or -not $repo) {
-        Write-Host '  skipped: set GITHUB_TOKEN and GITHUB_REPO (e.g. yourname/deepseek-companion)'
+        Write-Host '  skipped: set GITHUB_TOKEN and GITHUB_REPO (e.g. yourname/big_fat_fish_can_play_mc)'
+    } elseif ($DryRun) {
+        Write-Host "  [dry-run] POST https://api.github.com/repos/$repo/releases tag=v$Version prerelease"
+        Write-Host "  [dry-run] upload $fileName"
     } else {
-        $api = "https://api.github.com/repos/$repo/releases"
         $payload = @{
             tag_name   = "v$Version"
-            name       = "v$Version"
+            name       = $displayName
             body       = $body
             prerelease = $true
             draft      = $false
         } | ConvertTo-Json -Depth 4
-        $headers = @{ Authorization = "Bearer $token"; 'User-Agent' = 'deepseek-companion-release' }
-        $release = Invoke-RestMethod -Method Post -Uri $api -Headers $headers -Body $payload -ContentType 'application/json'
+        $headers = @{ Authorization = "Bearer $token"; 'User-Agent' = 'big-fat-fish-release' }
+        $release = Invoke-Api -Uri "https://api.github.com/repos/$repo/releases" -Headers $headers `
+            -Body $payload -ContentType 'application/json'
         Write-Host "  release created: $($release.html_url)"
-        $upload = "https://uploads.github.com/repos/$repo/releases/$($release.id)/assets?name=$([System.IO.Path]::GetFileName($Jar))"
-        Invoke-RestMethod -Method Post -Uri $upload -Headers $headers -InFile $Jar -ContentType 'application/java-archive' | Out-Null
-        Write-Host "  asset uploaded: $([System.IO.Path]::GetFileName($Jar))"
+        $upload = "https://uploads.github.com/repos/$repo/releases/$($release.id)/assets?name=$fileName"
+        Invoke-RestMethod -Method Post -Uri $upload -Headers $headers -InFile $Jar `
+            -ContentType 'application/java-archive' | Out-Null
+        Write-Host "  asset uploaded: $fileName"
     }
 }
 
 # ------------------------------------------------------------------- Modrinth
-function New-Multipart($DataJson, $FilePath) {
+# Modrinth expects multipart/form-data with a JSON "data" part plus one file part.
+function New-Multipart {
+    param([string]$FieldName, [string]$DataJson, [string]$FilePath, [string]$MimeType = 'application/java-archive')
     $boundary = [guid]::NewGuid().ToString()
     $ms = New-Object System.IO.MemoryStream
     $enc = [System.Text.Encoding]::UTF8
     $nl = "`r`n"
     $part = "--$boundary$nl" +
-        "Content-Disposition: form-data; name=`"data`"$nl" +
+        "Content-Disposition: form-data; name=`"$FieldName`"$nl" +
         "Content-Type: application/json$nl$nl" +
         $DataJson + $nl
     $bytes = $enc.GetBytes($part)
     $ms.Write($bytes, 0, $bytes.Length)
-    $fileBytes = [System.IO.File]::ReadAllBytes($FilePath)
     $fileHeader = "--$boundary$nl" +
         "Content-Disposition: form-data; name=`"file`"; filename=`"$([System.IO.Path]::GetFileName($FilePath))`"$nl" +
-        "Content-Type: application/java-archive$nl$nl"
+        "Content-Type: $MimeType$nl$nl"
     $bytes = $enc.GetBytes($fileHeader)
     $ms.Write($bytes, 0, $bytes.Length)
+    $fileBytes = [System.IO.File]::ReadAllBytes($FilePath)
     $ms.Write($fileBytes, 0, $fileBytes.Length)
     $tail = $enc.GetBytes("$nl--$boundary--$nl")
     $ms.Write($tail, 0, $tail.Length)
@@ -87,24 +122,33 @@ if (-not $SkipModrinth) {
     $token = $env:MODRINTH_TOKEN
     $project = $env:MODRINTH_PROJECT
     if (-not $token -or -not $project) {
-        Write-Host '  skipped: set MODRINTH_TOKEN and MODRINTH_PROJECT'
+        Write-Host '  skipped: set MODRINTH_TOKEN and MODRINTH_PROJECT (slug or id)'
     } else {
+        # Version files need the sha hashes, Modrinth re-hashes and rejects on mismatch.
         $data = @{
             project_id     = $project
-            name           = "DeepSeek Companion $Version"
+            name           = $displayName
             version_number = $Version
             changelog      = $body
             dependencies   = @()
-            game_versions  = @('1.21.11')
+            game_versions  = @($GameVersion)
             version_type   = 'alpha'
             loaders        = @('fabric')
             featured       = $false
-        } | ConvertTo-Json -Depth 5
-        $mp = New-Multipart $data $Jar
-        $headers = @{ Authorization = $token; 'User-Agent' = 'deepseek-companion-release' }
-        $res = Invoke-RestMethod -Method Post -Uri 'https://api.modrinth.com/v2/version' -Headers $headers `
-            -Body $mp.Bytes -ContentType $mp.ContentType
-        Write-Host "  uploaded version id $($res.id)"
+            file_parts     = @('file')
+            primary_file   = 'file'
+        } | ConvertTo-Json -Depth 6
+        if ($DryRun) {
+            Write-Host "  [dry-run] POST https://api.modrinth.com/v2/version"
+            Write-Host "  [dry-run] data: $data"
+        } else {
+            $mp = New-Multipart -FieldName 'data' -DataJson $data -FilePath $Jar
+            $headers = @{ Authorization = $token; 'User-Agent' = 'big-fat-fish-release/1.0' }
+            $res = Invoke-Api -Uri 'https://api.modrinth.com/v2/version' -Headers $headers `
+                -Body $mp.Bytes -ContentType $mp.ContentType
+            Write-Host "  uploaded version id $($res.id)"
+            Write-Host "  page: https://modrinth.com/mod/$project/version/$($res.version_number)"
+        }
     }
 }
 
@@ -114,23 +158,31 @@ if (-not $SkipCurseForge) {
     $token = $env:CURSEFORGE_TOKEN
     $project = $env:CURSEFORGE_PROJECT
     if (-not $token -or -not $project) {
-        Write-Host '  skipped: set CURSEFORGE_TOKEN and CURSEFORGE_PROJECT'
+        Write-Host '  skipped: set CURSEFORGE_TOKEN (X-Api-Token) and CURSEFORGE_PROJECT (numeric id)'
     } else {
-        $meta = @{
+        # CurseForge uses a JSON "metadata" part; gameVersions mix game version and loader names.
+        $metadata = @{
             changelog     = $body
             changelogType = 'markdown'
-            displayName   = "DeepSeek Companion $Version"
+            displayName   = $displayName
             releaseType   = 'alpha'
-            gameVersions  = @('1.21.11', 'Fabric')
+            gameVersions  = @($GameVersion, 'Fabric')
         } | ConvertTo-Json -Depth 4
-        $mp = New-Multipart $meta $Jar
-        $headers = @{ 'X-Api-Token' = $token }
-        $res = Invoke-RestMethod -Method Post `
-            -Uri "https://minecraft.curseforge.com/api/projects/$project/upload" `
-            -Headers $headers -Body $mp.Bytes -ContentType $mp.ContentType
-        Write-Host "  upload result: $($res | ConvertTo-Json -Compress)"
+        if ($DryRun) {
+            Write-Host "  [dry-run] POST https://minecraft.curseforge.com/api/projects/$project/upload"
+            Write-Host "  [dry-run] metadata: $metadata"
+        } else {
+            $mp = New-Multipart -FieldName 'metadata' -DataJson $metadata -FilePath $Jar
+            $headers = @{ 'X-Api-Token' = $token }
+            $res = Invoke-Api -Uri "https://minecraft.curseforge.com/api/projects/$project/upload" `
+                -Headers $headers -Body $mp.Bytes -ContentType $mp.ContentType
+            Write-Host "  upload result: $($res | ConvertTo-Json -Compress)"
+        }
     }
 }
 
 Write-Step 'done'
 Write-Host "artifact: $Jar"
+if (Test-Path $Description) {
+    Write-Host "project page text: $Description (paste into the Modrinth/CurseForge editor once)"
+}
