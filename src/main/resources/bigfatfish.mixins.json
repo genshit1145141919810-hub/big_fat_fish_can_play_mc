@@ -1,0 +1,15 @@
+{
+  "required": true,
+  "package": "io.github.xiaod.deepseekcompanion.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "MinecraftClientMixin",
+    "ChatHudMixin",
+    "ClientPlayNetworkHandlerMixin",
+    "ClientCommonNetworkHandlerMixin",
+    "ClientPlayerInteractionManagerMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

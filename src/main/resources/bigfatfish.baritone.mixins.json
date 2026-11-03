@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "package": "io.github.xiaod.deepseekcompanion.mixin.baritone",
+  "compatibilityLevel": "JAVA_21",
+  "plugin": "io.github.xiaod.deepseekcompanion.mixin.XiaoDMixinPlugin",
+  "client": [
+    "BaritoneBlockOptionalMetaMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

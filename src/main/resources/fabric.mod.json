@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "big_fat_fish_can_play_mc",
+  "version": "${version}",
+  "name": "大肥鱼能玩MC",
+  "description": "Big Fat Fish Can Play MC — 一个真实第二个账号的 AI 搭子：聊天、跟随、挖矿、合成、战斗、多步规划。默认接 DeepSeek，任何 OpenAI 兼容端点都能用。",
+  "authors": [
+    "XiaoD"
+  ],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "io.github.xiaod.deepseekcompanion.DeepseekCompanionClient"
+    ]
+  },
+  "mixins": [
+    "bigfatfish.mixins.json",
+    "bigfatfish.baritone.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "~1.21.11",
+    "java": ">=21"
+  },
+  "suggests": {
+    "baritone": "*",
+    "xaerominimap": "*"
+  },
+  "icon": "assets/big_fat_fish_can_play_mc/icon.png"
+}

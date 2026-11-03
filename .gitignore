@@ -1,0 +1,33 @@
+# builds
+build/
+out/
+*.log
+
+# ide
+.idea/
+*.iml
+.vscode/
+
+# gradle
+.gradle/
+gradle/
+
+# local tools / scratch
+tools/build/
+tools/samples/
+tools/shot*.png
+tools/*.bak
+*.intermediary.bak
+
+# minecraft run dirs
+run/
+
+# local build inputs (too big / not ours to redistribute)
+libs/*.jar
+libs/*.txt
+dist/
+
+# agent scratch
+tools/*.png
+tools/*.bak
+*.jfr
