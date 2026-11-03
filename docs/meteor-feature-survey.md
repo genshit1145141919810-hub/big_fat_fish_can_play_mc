@@ -55,7 +55,26 @@ Meteor 的价值不在"功能数量"，而在于**它把很多"照顾自己"的�
 | `PacketLogger` / `Notifier` / `EntityOwner` | 调试与信息 | 调试价值 > 玩家价值，内部工具可留 |
 | `FakePlayer` | 客户端假人（测试用） | 我们测试里很有用，可以借；不面向玩家 |
 
-## 四、不该做（No）——会毁定位、也常有封号风险
+## 四、KillAura 里值得学的那部分（只用于打怪，不碰玩家）
+
+Meteor 的 `KillAura` 有一整套"怎么把一刀打得又准又不浪费"的工程细节，这些和"外挂"无关，是可以搬进我们的怪物战斗系统的。逐项判断：
+
+| KillAura 的做法 | 学不学 | 我们的落地方式 |
+|---|---|---|
+| `SortPriority`（距离/血量/角度排序） | ✅ 学 | `CombatController.pickHostile`：距离 + 威胁加权（苦力怕/骷髅优先）+ 残血补刀 + 没视线扣分 |
+| 目标过滤（`isAttackable`、婴儿、驯服、命名、拴绳） | ✅ 学 | 只打 `Monster`，不误伤宠物/命名怪；婴儿僵尸降权 |
+| `wallsRange`（隔墙能打多远） | ✅ 学（反向用） | 我们干脆**隔墙不打**（`canSee` 不一刀不挥），省耐久也不像外挂 |
+| `RotationMode`（Always / OnHit / None） | ✅ 学 OnHit | `aimAt`：每 tick 最多转 22°，没转到 12° 以内就先转不挥——真人手速就是这样 |
+| `SettingGroup.Timing`（hitDelay / tpsSync） | ✅ 学思路 | 已有"攻击冷却 ≥0.9 才挥"，另外加了"嘴/盾在用时不动手"（`isUsingItem`） |
+| `autoSwitch` + `swapBack`（战斗中换武器，打完换回） | ✅ 学 | `equipBestWeapon` 现在扫**整个背包**而不是快捷栏，换出来的武器打完自动换回原位 |
+| `onlyOnClick` / `onlyOnLook` | ⚠️ 不适用 | 那是给真人留控制感的开关；AI 没有"点击"这回事 |
+| `ShieldMode`（Break/Ignore） | ❌ 不学 | 那是破盾工具人逻辑；我们不破玩家盾，只对付怪 |
+| 多目标 `maxTargets` 同时打几个 | ❌ 不学 | 一次只打一个，多目标容易变成"光环"观感 |
+| `range` / `wallsRange` 超过原版攻击距离 | ❌ 绝不学 | 保持原版 3.0 格，不加长臂 |
+
+结论：**KillAura 值得学的只有"目标评估 + 平滑瞄准 + 武器调度 + 出手纪律"这四件事**，都是让它像人、不浪费。它的"同时打多个、穿墙、加长手"一概不要。
+
+## 五、不该做（No）——会毁定位、也常有封号风险
 
 - **战斗光环/自动打击**：`KillAura` `CrystalAura` `AnchorAura` `BedAura` `AutoTrap` `Surround` `Burrow` `AutoCity` `AntiAnchor` `AntiAnvil` `AntiBed` `AutoWeapon` `Offhand` `AutoTotem` `AutoLog` `ArrowDodge` `Criticals` `BowAimbot` `BowSpam` `Quiver` `AutoEXP` `AutoAnvil` `AutoClicker` `MultiTask`
   理由：这是 PvP 外挂的核心；我们的定位是"另一个玩家"，不是"代打"。而且服务端反作弊会连坐玩家账号。
@@ -70,7 +89,7 @@ Meteor 的价值不在"功能数量"，而在于**它把很多"照顾自己"的�
 
 ---
 
-## 五、Notebot 拆解（娱乐功能里最值得移植的一个）
+## 六、Notebot 拆解（娱乐功能里最值得移植的一个）
 
 从 jar 里能看到的实现骨架：
 
@@ -94,7 +113,7 @@ Meteor 的价值不在"功能数量"，而在于**它把很多"照顾自己"的�
 
 ---
 
-## 六、建议的落地顺序
+## 七、建议的落地顺序
 
 1. **AutoEat / AutoTool / AutoReplenish / AutoMend**（生存自理，收益最大）
 2. **Nametags + Waypoints**（陪伴感与地点记忆，和现有 `Memory` 合并）

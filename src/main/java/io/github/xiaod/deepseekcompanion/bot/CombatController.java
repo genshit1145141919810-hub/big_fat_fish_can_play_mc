@@ -56,6 +56,16 @@ public final class CombatController {
     private static String huntType = "";
     private static LivingEntity huntTarget;
 
+    /** 平滑瞄准用：上一个 tick 的朝向，以及"够不够正"（学 KillAura 的 OnHit 转向）。 */
+    private static float aimYaw;
+    private static float aimPitch;
+    private static boolean aimInitialized;
+    private static final float AIM_STEP_DEG = 22.0f;
+    /** 换武器前手上是第几格：打完还回去（学 KillAura 的 swapBack）。 */
+    private static int preCombatSlot = -1;
+    /** 上次打日志时的武器格，避免每秒刷同一行。 */
+    private static int lastWeaponLogSlot = -1;
+
     private CombatController() {
     }
 
@@ -87,7 +97,7 @@ public final class CombatController {
         if (p == null || mc.world == null) {
             return;
         }
-        LivingEntity hostile = BotActions.nearestHostile(mc, CHASE_RANGE);
+        LivingEntity hostile = pickHostile(mc, CHASE_RANGE);
 
         // mining priority: avoid monsters instead of fighting them - unless the mob
         // is faster than us, in which case running is pointless
@@ -161,6 +171,7 @@ public final class CombatController {
                         && now - lastEat > (wounded ? 4000L : 12000L)) {
                     if (BotActions.eat(mc, true)) {
                         lastEat = now;
+                        return; // 吃优先：这一口吃完再打
                     }
                 }
                 attack(mc, p, hostile, cfg, now);
@@ -171,6 +182,9 @@ public final class CombatController {
         // 3) out of reach: let Baritone walk us in, unless following wins right now
         if (PriorityMode.isFollow()) {
             return;
+        }
+        if (hostile == null) {
+            restoreWeapon(mc); // 附近没怪了：把打架时换出来的武器收回去
         }
         if (hostile != null && BaritoneBridge.available() && !TaskTracker.isBusy()
                 && hostile.squaredDistanceTo(p) > 25.0
@@ -183,12 +197,108 @@ public final class CombatController {
         }
     }
 
+    /**
+     * 学 KillAura 的 SortPriority：不只看远近，还把威胁、血量、视线一起算进去。
+     * 但只用来挑怪，不碰玩家。
+     */
+    private static LivingEntity pickHostile(MinecraftClient mc, double range) {
+        ClientPlayerEntity p = mc.player;
+        if (p == null || mc.world == null) {
+            return null;
+        }
+        LivingEntity best = null;
+        double bestScore = Double.MAX_VALUE;
+        for (var entity : mc.world.getEntitiesByClass(LivingEntity.class, p.getBoundingBox().expand(range),
+                e -> e != p && e.isAlive() && !e.isRemoved() && e instanceof net.minecraft.entity.mob.Monster)) {
+            double score = Math.sqrt(entity.squaredDistanceTo(p));
+            String type = Registries.ENTITY_TYPE.getId(entity.getType()).getPath();
+            if (type.contains("creeper")) {
+                score -= 6.0; // 爆炸源优先拆，别等它贴脸
+            } else if (type.contains("skeleton") || type.contains("blaze") || type.contains("witch")) {
+                score -= 3.0; // 远程先解决
+            }
+            if (entity.getHealth() <= 6.0f) {
+                score -= 2.0; // 残血收掉，少一个敌人
+            }
+            if (!p.canSee(entity)) {
+                score += 4.0; // 隔墙的先垫后，别对着空气挥
+            }
+            if (entity instanceof net.minecraft.entity.mob.ZombieEntity zombie && zombie.isBaby()) {
+                score += 2.0; // 小僵尸跑得快，不是最优先
+            }
+            if (score < bestScore) {
+                bestScore = score;
+                best = entity;
+            }
+        }
+        return best;
+    }
+
+    /** 平滑转向：每 tick 最多转 AIM_STEP_DEG，角度还差得多就先转不挥（真人手也是这样）。 */
+    private static boolean aimAt(ClientPlayerEntity p, LivingEntity target) {
+        var eyes = target.getEyePos();
+        double dx = eyes.x - p.getX();
+        double dy = eyes.y - p.getEyeY();
+        double dz = eyes.z - p.getZ();
+        double horiz = Math.sqrt(dx * dx + dz * dz);
+        float wantYaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0);
+        float wantPitch = (float) (-Math.toDegrees(Math.atan2(dy, horiz)));
+        if (!aimInitialized) {
+            aimYaw = p.getYaw();
+            aimPitch = p.getPitch();
+            aimInitialized = true;
+        }
+        float dYaw = wrapDegrees(wantYaw - aimYaw);
+        float dPitch = wantPitch - aimPitch;
+        float stepYaw = Math.max(-AIM_STEP_DEG, Math.min(AIM_STEP_DEG, dYaw));
+        float stepPitch = Math.max(-AIM_STEP_DEG, Math.min(AIM_STEP_DEG, dPitch));
+        aimYaw += stepYaw;
+        aimPitch += stepPitch;
+        p.setYaw(aimYaw);
+        p.setPitch(aimPitch);
+        return Math.abs(wrapDegrees(wantYaw - aimYaw)) < 12.0f && Math.abs(wantPitch - aimPitch) < 12.0f;
+    }
+
+    private static float wrapDegrees(float degrees) {
+        float d = degrees % 360.0f;
+        if (d >= 180.0f) {
+            d -= 360.0f;
+        }
+        if (d < -180.0f) {
+            d += 360.0f;
+        }
+        return d;
+    }
+
+    /** 打完了把手上的武器换回原来那格（只在真的为打架换过时才换回去）。 */
+    private static void restoreWeapon(MinecraftClient mc) {
+        if (preCombatSlot < 0 || mc.player == null) {
+            return;
+        }
+        int slot = preCombatSlot;
+        preCombatSlot = -1;
+        if (slot != mc.player.getInventory().getSelectedSlot()) {
+            mc.player.getInventory().setSelectedSlot(slot);
+        }
+    }
+
     private static void attack(MinecraftClient mc, ClientPlayerEntity p, LivingEntity target,
                                CompanionConfig cfg, long now) {
-        p.lookAt(EntityAnchorArgumentType.EntityAnchor.EYES, target.getEyePos());
+        // 吃优先，打靠后：嘴里有东西或者刚点开食物，这一 tick 就不挥了（挥了会打断进食）
+        if (BotActions.isEating() || p.isUsingItem()) {
+            return;
+        }
+        // 隔着墙不打：既浪费耐久，也像外挂
+        if (!p.canSee(target)) {
+            return;
+        }
+        boolean aimed = aimAt(p, target);
         boolean legacyServer = ViaBridge.isLegacyCombat(ViaBridge.protocol(mc));
         if (!legacyServer && p.getAttackCooldownProgress(0.5f) < 0.9f) {
             return;
+        }
+        if (!aimed) {
+            return; // 先把手转到位，下一 tick 再打
         }
         if (legacyServer && now - lastLegacySwing < 100L) {
             return; // 1.8 servers have no cooldown; just do not spam every tick
@@ -280,6 +390,9 @@ public final class CombatController {
             }
         }
         double distance = Math.sqrt(huntTarget.squaredDistanceTo(p));
+        if (BotActions.isEating() || p.isUsingItem()) {
+            return; // 嘴里有东西：先吃完
+        }
         if (distance <= MELEE_REACH) {
             equipBestWeapon(mc, cfg, now, huntTarget.isFireImmune());
             attack(mc, p, huntTarget, cfg, now);
@@ -320,7 +433,8 @@ public final class CombatController {
         PlayerInventory inventory = mc.player.getInventory();
         int best = -1;
         double bestDps = 0.0;
-        for (int slot = 0; slot < 9; slot++) {
+        // 学 KillAura：整个背包都看，不只快捷栏
+        for (int slot = 0; slot < 36; slot++) {
             ItemStack stack = inventory.getStack(slot);
             if (stack.isEmpty()) {
                 continue;
@@ -331,9 +445,40 @@ public final class CombatController {
                 best = slot;
             }
         }
-        if (best >= 0 && best != inventory.getSelectedSlot()) {
+        if (best < 0) {
+            return;
+        }
+        if (best >= 9) {
+            // 不在快捷栏：换到当前手持格（等于按数字键交换），并记下原来那格
+            int hotbar = inventory.getSelectedSlot();
+            int handlerSlot = -1;
+            var handler = mc.player.currentScreenHandler;
+            for (var slot : handler.slots) {
+                if (slot.inventory == inventory && slot.getIndex() == best) {
+                    handlerSlot = slot.id;
+                    break;
+                }
+            }
+            if (handlerSlot < 0 || mc.interactionManager == null) {
+                return;
+            }
+            if (preCombatSlot < 0) {
+                preCombatSlot = hotbar;
+            }
+            mc.interactionManager.clickSlot(handler.syncId, handlerSlot, hotbar,
+                    net.minecraft.screen.slot.SlotActionType.SWAP, mc.player);
+            DeepseekCompanionClient.LOGGER.info("[XiaoD] weapon: 从背包换入 slot {} (dps {})", best, String.format("%.2f", bestDps));
+            return;
+        }
+        if (best != inventory.getSelectedSlot()) {
+            if (preCombatSlot < 0) {
+                preCombatSlot = inventory.getSelectedSlot();
+            }
             inventory.setSelectedSlot(best);
-            DeepseekCompanionClient.LOGGER.info("[XiaoD] weapon -> slot {} (dps {})", best, String.format("%.2f", bestDps));
+            if (best != lastWeaponLogSlot) {
+                lastWeaponLogSlot = best;
+                DeepseekCompanionClient.LOGGER.info("[XiaoD] weapon -> slot {} (dps {})", best, String.format("%.2f", bestDps));
+            }
         }
     }
 
