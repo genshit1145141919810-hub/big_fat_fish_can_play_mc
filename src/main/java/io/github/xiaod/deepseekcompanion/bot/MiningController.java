@@ -264,6 +264,20 @@ public final class MiningController {
         return false;
     }
 
+    /** 这个方块是不是真的在视线里（用碰撞体射线打过去，打到它才算看见）。 */
+    public static boolean visible(MinecraftClient mc, BlockPos pos) {
+        if (mc.player == null || mc.world == null) {
+            return false;
+        }
+        var hit = mc.world.raycast(new net.minecraft.world.RaycastContext(
+                mc.player.getEyePos(),
+                Vec3d.ofCenter(pos),
+                net.minecraft.world.RaycastContext.ShapeType.OUTLINE,
+                net.minecraft.world.RaycastContext.FluidHandling.NONE,
+                mc.player));
+        return hit.getBlockPos().equals(pos) || hit.getBlockPos().equals(pos.up());
+    }
+
     private static boolean matches(MinecraftClient mc, BlockPos pos) {
         if (HomeZone.isProtected(pos)) {
             return false; // 家的保护区只准交互
@@ -271,6 +285,10 @@ public final class MiningController {
         BlockState state = mc.world.getBlockState(pos);
         if (state.isAir()) {
             return false;
+        }
+        if (io.github.xiaod.deepseekcompanion.config.CompanionConfig.get().fairPlay
+                && !visible(mc, pos)) {
+            return false; // 公平模式：看不见的不算目标
         }
         if (chop) {
             return state.isIn(BlockTags.LOGS);

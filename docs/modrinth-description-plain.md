@@ -62,6 +62,17 @@ All commands are local; none of them spam server chat.
 
 `config/bigfatfish.json` next to the game directory. Notable switches: `enableButler` (pickup / unstick / junk), `enablePluginActions`, `useBaritoneAvoidance`, combat tuning (`retreatHealth`, `critEnabled`, `switchWeapon`), `followDistance`.
 
+## About "x-ray" claims, honestly
+
+- **Nothing is rendered through walls**: no ESP, no ore highlight, no see-through outlines.
+- **But decisions do use the full loaded-chunk data**: any pathfinder has to read block states
+  (Baritone included), so it "knows" there is iron behind that stone. That is not rendered
+  x-ray, but the information advantage is real.
+
+If you want it to behave like a human, use `.xd fair on`: targets must be inside the line of
+sight (raycast), and it will walk there instead of picking ores from chunk data. Off by default,
+because that is how it can actually mine.
+
 ## Known limitations (alpha, honestly)
 
 - Deep-ore mining is the weakest part: it digs a shaft, but very deep targets on servers with strict anti-cheat may still fail.

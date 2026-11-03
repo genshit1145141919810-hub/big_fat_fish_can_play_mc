@@ -73,6 +73,12 @@ public final class CompanionConfig {
     public float critMinDistance = 2.4f;
     /** Swap to the hotbar stack with the highest attack-damage modifier. */
     public boolean switchWeapon = true;
+    /**
+     * 公平模式：只挖"人眼看得见"的方块。
+     * <p>关掉时，寻路和选矿都会用 Baritone / 区块数据，等于知道墙后面有什么；
+     * 打开后目标必须真的在视线里（raycast 打得到），做不到的就不挖，先走过去。</p>
+     */
+    public boolean fairPlay = false;
     /** Keep the best armour equipped (armour + toughness + protection score). */
     public boolean autoArmor = true;
     /** Disengage and eat at or below this health; 0 disables the retreat. */

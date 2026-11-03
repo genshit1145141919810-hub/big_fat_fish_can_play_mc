@@ -1031,6 +1031,12 @@ public final class AcquireTask {
     }
 
     private static boolean startMine(MinecraftClient mc, Step step) {
+        if (io.github.xiaod.deepseekcompanion.config.CompanionConfig.get().fairPlay) {
+            // 公平模式：不用 Baritone 的 #mine（它会用区块数据挑目标），改自己挖看得见的
+            String visibleBlock = mineBlockFor(step.item());
+            return MiningController.start(mc, visibleBlock == null ? step.arg() : visibleBlock,
+                    false, Math.max(1, step.count()));
+        }
         String block = mineBlockFor(step.item());
         if (block != null && !block.equals(step.arg())) {
             DeepseekCompanionClient.LOGGER.info("[XiaoD] acquire: 同族里 {} 更近，挖它", block);

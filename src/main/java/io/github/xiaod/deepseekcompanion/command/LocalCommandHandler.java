@@ -49,6 +49,7 @@ public final class LocalCommandHandler {
             case "login" -> login(arg);
             case "model" -> setModel(arg);
             case "base" -> setBase(arg);
+            case "fair" -> setFair(arg);
             case "header" -> setKeyHeader(arg);
             case "owner" -> setOwner(arg);
             case "say" -> BotBrain.say(arg);
@@ -199,6 +200,20 @@ public final class LocalCommandHandler {
     }
 
     /** .xd base <url>：换成任何 OpenAI 兼容地址（OpenAI、本地 Ollama、自建网关…）。 */
+    /** .xd fair on|off：只挖看得见的方块（关掉会利用 Baritone 的区块数据）。 */
+    private static void setFair(String arg) {
+        CompanionConfig cfg = CompanionConfig.get();
+        String value = arg == null ? "" : arg.strip().toLowerCase(java.util.Locale.ROOT);
+        if (value.isEmpty()) {
+            say("§7公平模式: §f" + (cfg.fairPlay ? "开（只挖看得见的）" : "关（会用区块数据选目标）"));
+            say("§c用法: .xd fair on / .xd fair off");
+            return;
+        }
+        cfg.fairPlay = value.equals("on") || value.equals("true") || value.equals("1");
+        CompanionConfig.save();
+        say("§a公平模式: " + (cfg.fairPlay ? "开（只挖视线内的方块）" : "关"));
+    }
+
     private static void setBase(String arg) {
         if (arg.isBlank()) {
             say("§7当前: §f" + CompanionConfig.get().baseUrl);
