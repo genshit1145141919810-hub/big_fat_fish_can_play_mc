@@ -72,8 +72,9 @@ public final class PlacedBlocks {
             return;
         }
         // 别人在干正事的时候别抢
+        // 获取任务可以还在跑——只要此刻没人在挖/合成/打架，就能顺手把它收回来
         if (PlanRunner.isPlanning() || MiningController.isBusy() || DigController.isBusy()
-                || ContainerController.isBusy() || CombatController.isHunting() || AcquireTask.isBusy()) {
+                || ContainerController.isBusy() || CombatController.isHunting()) {
             return;
         }
         if (current == null) {
@@ -95,6 +96,9 @@ public final class PlacedBlocks {
         }
         double distance = mc.player.getEyePos().distanceTo(Vec3d.ofCenter(current));
         if (distance > 4.2) {
+            if (BaritoneBridge.expectingMovement()) {
+                return; // 有人正在走路（比如去挖矿），别打断它
+            }
             if (BaritoneBridge.available()) {
                 BaritoneBridge.gotoPos(current.getX(), current.getY() + 1, current.getZ());
             }

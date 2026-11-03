@@ -915,6 +915,10 @@ public final class AcquireTask {
             verifyUntil = 0L;
             mineDryStreak = 0;
             mineRetries = 0;
+            if (!planNeedsStation()) {
+                // 后面不再需要工作台/熔炉：刚用完就收回来，别丢在原地
+                PlacedBlocks.recoverAll();
+            }
             return;
         }
         boolean ok = switch (step.op()) {
@@ -969,6 +973,16 @@ public final class AcquireTask {
                     ? step + " 附近找不到 " + step.arg() + " 了"
                     : step + " 起不来");
         }
+    }
+
+    /** 计划里后面还有没有要用工作台/熔炉的步骤。 */
+    private static boolean planNeedsStation() {
+        for (Step step : PLAN) {
+            if (step.op() == Op.CRAFT || step.op() == Op.SMELT) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 那种方块是不是真在脚边了（放工作台/熔炉之后检查）。 */
