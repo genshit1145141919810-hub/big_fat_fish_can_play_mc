@@ -40,6 +40,8 @@ public final class CompanionConfig {
 
     // ---- behaviour ----
     public boolean enableChat = true;
+    /** 常驻杂役：捡掉落物、卡住自救、清垃圾。 */
+    public boolean enableButler = true;
     /** 允许第三方模组通过 entrypoint 注册新动作（插件动作只会执行它自己写的行为）。 */
     public boolean enablePluginActions = true;
     /** 聊天调试：记录收到的每条聊天原文与判定结果，游戏里 {@code .xd chat} 可查看。 */

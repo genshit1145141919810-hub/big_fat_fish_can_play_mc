@@ -31,6 +31,7 @@ public enum BotAction {
     FIGHT("fight", "攻击附近怪物", Kind.PHYSICAL, ArgKind.NONE),
     PORTAL("portal", "走进传送门跨维度（留空=最近的门，或填 nether/end）", Kind.PHYSICAL, ArgKind.STRING),
     PLACE("place", "把手上的方块放到脚边（工作台之类，arg=方块 ID）", Kind.PHYSICAL, ArgKind.ITEM),
+    ACQUIRE("acquire", "弄到某种东西（会自己挖/烧/合/从箱子取/打猎，arg=物品 ID）", Kind.PHYSICAL, ArgKind.ITEM),
     IDLE("idle", "什么也不做", Kind.PHYSICAL, ArgKind.NONE),
 
     RECIPE("recipe", "查某个物品怎么合出来", Kind.QUERY, ArgKind.ITEM),

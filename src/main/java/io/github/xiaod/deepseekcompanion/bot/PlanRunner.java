@@ -177,6 +177,7 @@ public final class PlanRunner {
             return;
         }
         Perception.note("计划失败：" + reason);
+        io.github.xiaod.deepseekcompanion.bot.Memory.noteFailure(goal, reason);
         DeepseekCompanionClient.LOGGER.info("[XiaoD] plan replan #{}/{}: {}", replans, max, reason);
         waitingModel = true;
         BotBrain.requestReplan(goal, observation(mc, reason), reason);
@@ -312,7 +313,8 @@ public final class PlanRunner {
 
     /** 任一控制器在忙，就不该开始下一步。 */
     public static boolean anyBusy() {
-        return BlockInController.isBusy()
+        return AcquireTask.isBusy()
+                || BlockInController.isBusy()
                 || MiningController.isBusy()
                 || ContainerController.isBusy()
                 || StorageController.isBusy()

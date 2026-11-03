@@ -234,6 +234,9 @@ public final class Perception {
         sb.append("任务 ").append(TaskTracker.isBusy() ? TaskTracker.type() : "无");
         sb.append(" | 计划 ").append(PlanRunner.isPlanning() ? PlanRunner.status() : "无");
         sb.append(" | 挖掘 ").append(MiningController.isBusy() ? "进行中" : "空闲");
+        if (AcquireTask.isBusy()) {
+            sb.append(" | ").append(AcquireTask.status());
+        }
         sb.append(" | Baritone ").append(BaritoneBridge.available() ? "可用" : "未装");
         if (BlockInController.isBusy()) {
             sb.append(" | §e正在垒墙");

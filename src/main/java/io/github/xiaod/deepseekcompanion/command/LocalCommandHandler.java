@@ -60,6 +60,7 @@ public final class LocalCommandHandler {
             case "mine" -> mine(arg);
             case "recipe" -> recipe(arg);
             case "craft" -> craft(arg);
+            case "get" -> get(arg);
             case "inv" -> say(io.github.xiaod.deepseekcompanion.bot.ActionExecutor.execute(
                     MinecraftClient.getInstance(),
                     new io.github.xiaod.deepseekcompanion.chat.Intent("",
@@ -601,6 +602,18 @@ public final class LocalCommandHandler {
     }
 
     /** 放方块：工作台/熔炉/高炉/烟熏炉……任何方块物品都能放。 */
+    /** 获取物品：背包→合成→熔炼→挖→箱子→打猎。 */
+    private static void get(String arg) {
+        try {
+            String item = ActionValidator.validateItem(arg);
+            boolean ok = io.github.xiaod.deepseekcompanion.bot.AcquireTask
+                    .start(MinecraftClient.getInstance(), item, 1);
+            say(ok ? "§7开始弄 " + item : "§c不知道要弄什么");
+        } catch (ActionValidator.FormatException e) {
+            say("§c" + e.getMessage());
+        }
+    }
+
     /** 合成（会自动展开原料树：缺木板/木棍会先合出来）。 */
     private static void craft(String arg) {
         try {

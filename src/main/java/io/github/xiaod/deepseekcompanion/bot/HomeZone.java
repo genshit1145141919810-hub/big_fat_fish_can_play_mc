@@ -103,6 +103,7 @@ public final class HomeZone {
         cfg.homeY = pos.getY();
         cfg.homeZ = pos.getZ();
         CompanionConfig.save();
+        Memory.setHome(pos, dim);
         if (!same) {
             blockedUntil = 0L;
             DeepseekCompanionClient.LOGGER.info("[XiaoD] home set to {} in {}", pos, dim);

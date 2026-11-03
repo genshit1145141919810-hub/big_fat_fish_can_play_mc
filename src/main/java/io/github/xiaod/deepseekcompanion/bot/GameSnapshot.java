@@ -67,6 +67,7 @@ public final class GameSnapshot {
         if (protocol > 0) {
             sb.append(" | 服务器协议 ").append(ViaBridge.describe(protocol));
         }
+        sb.append(" | 记忆 ").append(Memory.summary());
         sb.append(Perception.snapshotSuffix(mc));
         String env = ModLinks.summary();
         if (!env.isBlank()) {

@@ -128,6 +128,7 @@ public final class ActionExecutor {
             case EAT -> BotActions.eat(mc);
             case PORTAL -> PortalController.start(mc, intent.arg());
             case PLACE -> PlacementController.place(mc, intent.arg());
+            case ACQUIRE -> AcquireTask.start(mc, intent.arg(), 1);
             case FIGHT -> BotActions.attackNearest(mc, 16);
             default -> false;
         });
