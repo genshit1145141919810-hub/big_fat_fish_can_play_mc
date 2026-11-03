@@ -3,6 +3,7 @@ package io.github.xiaod.deepseekcompanion.bot;
 import io.github.xiaod.deepseekcompanion.DeepseekCompanionClient;
 import net.minecraft.block.BlockState;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.command.argument.EntityAnchorArgumentType;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
@@ -29,11 +30,18 @@ public final class PlacementController {
     /** 换手后等一 tick 再放：SWAP 的结果要等服务端同步回来。 */
     private static String pendingItem;
     private static long pendingUntil;
+    /** 放置前先清出来的一块空地。 */
+    private static BlockPos clearTarget;
+    private static boolean clearStarted;
+    private static long clearStartedAt;
 
     private PlacementController() {
     }
 
     public static void tick(MinecraftClient mc) {
+        if (clearTarget != null) {
+            tickClear(mc);
+        }
         if (pendingItem == null) {
             return;
         }
@@ -53,6 +61,60 @@ public final class PlacementController {
         return false;
     }
 
+    private static void tickClear(MinecraftClient mc) {
+        if (clearTarget == null || mc.player == null || mc.world == null || mc.interactionManager == null) {
+            clearTarget = null;
+            return;
+        }
+        if (mc.world.getBlockState(clearTarget).isAir()) {
+            clearTarget = null;
+            return;
+        }
+        if (System.currentTimeMillis() - clearStartedAt > 15_000L) {
+            DeepseekCompanionClient.LOGGER.info("[XiaoD] place: {} 清不动，算了", clearTarget);
+            clearTarget = null;
+            return;
+        }
+        Vec3d center = Vec3d.ofCenter(clearTarget);
+        mc.player.lookAt(EntityAnchorArgumentType.EntityAnchor.EYES, center);
+        Vec3d eye = mc.player.getEyePos();
+        Direction face = Direction.getFacing(center.x - eye.x, center.y - eye.y, center.z - eye.z);
+        if (!clearStarted) {
+            MiningController.equipPickaxe(mc);
+            mc.interactionManager.attackBlock(clearTarget, face);
+            clearStarted = true;
+        }
+        mc.interactionManager.updateBlockBreakingProgress(clearTarget, face);
+    }
+
+    /** 脚下没有合适的位置：往旁边找个能站的地方，走过去再放。 */
+    public static boolean reposition(MinecraftClient mc) {
+        if (mc.player == null || mc.world == null || !BaritoneBridge.available()) {
+            return false;
+        }
+        BlockPos origin = mc.player.getBlockPos();
+        for (int r = 2; r <= 8; r++) {
+            for (BlockPos pos : BlockPos.iterateOutwards(origin, r, 6, r)) {
+                if (!standable(mc, pos)) {
+                    continue;
+                }
+                if (!mc.world.getBlockState(pos).isAir() || !mc.world.getBlockState(pos.up()).isAir()) {
+                    continue;
+                }
+                DeepseekCompanionClient.LOGGER.info("[XiaoD] place: 换个地方放，去 {}", pos);
+                BaritoneBridge.gotoPos(pos.getX(), pos.getY(), pos.getZ());
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean standable(MinecraftClient mc, BlockPos pos) {
+        return !mc.world.getBlockState(pos.down()).getCollisionShape(mc.world, pos.down()).isEmpty()
+                && mc.world.getBlockState(pos).getCollisionShape(mc.world, pos).isEmpty()
+                && mc.world.getBlockState(pos.up()).getCollisionShape(mc.world, pos.up()).isEmpty();
+    }
+
     public static boolean place(MinecraftClient mc, String itemId) {
         ClientPlayerEntity p = mc.player;
         if (p == null || mc.world == null || mc.interactionManager == null) {
@@ -70,6 +132,14 @@ public final class PlacementController {
             // 不在快捷栏就从背包里换过来（SlotActionType.SWAP 等于按数字键换位）
             slot = pullToHotbar(mc, p, id);
             if (slot < 0) {
+                if ("crafting_table".equals(id) && ContainerController.tableNearby(mc)) {
+                    DeepseekCompanionClient.LOGGER.info("[XiaoD] place {}: 附近已经有台子了，不用再放", id);
+                    return true;
+                }
+                if ("furnace".equals(id) && ContainerController.furnaceNearby(mc)) {
+                    DeepseekCompanionClient.LOGGER.info("[XiaoD] place {}: 附近已经有熔炉了，不用再放", id);
+                    return true;
+                }
                 DeepseekCompanionClient.LOGGER.info("[XiaoD] place {}: not in hotbar and not in inventory", id);
                 BotBrain.say("身上没有 " + id + "（工作台/熔炉这些得先合出来）");
                 return false;
@@ -86,6 +156,20 @@ public final class PlacementController {
         p.getInventory().setSelectedSlot(slot);
 
         BlockPos origin = p.getBlockPos();
+        // 放之前先给自己清一块地：站在树/墙里的时候永远找不到空位
+        BlockPos blocked = null;
+        if (!mc.world.getBlockState(origin.up()).isAir()) {
+            blocked = origin.up();
+        } else if (!mc.world.getBlockState(origin).isAir()) {
+            blocked = origin;
+        }
+        if (blocked != null && !mc.world.getBlockState(blocked).isOf(net.minecraft.block.Blocks.BEDROCK)) {
+            clearTarget = blocked;
+            clearStarted = false;
+            clearStartedAt = System.currentTimeMillis();
+            DeepseekCompanionClient.LOGGER.info("[XiaoD] place: 先把 {} 清掉再放", blocked);
+            return true;
+        }
         BlockPos.Mutable cursor = new BlockPos.Mutable();
         int baseCount = 0;
         int airCount = 0;

@@ -932,9 +932,22 @@ public final class AcquireTask {
         statusText = "获取 " + goalItem + "：" + step;
         DeepseekCompanionClient.LOGGER.info("[XiaoD] acquire step {} ok={}", step, ok);
         if (!ok) {
-            if (step.op() == Op.PLACE && ++placeAttempts <= PLACE_ATTEMPTS) {
-                stepStarted = false;
-                return;
+            if (step.op() == Op.PLACE) {
+                if (placementHeld(mc, step.item())) {
+                    // 其实已经有一张在附近了，这一步直接算过
+                    PLAN.poll();
+                    stepStarted = false;
+                    stepSince = now;
+                    return;
+                }
+                if (++placeAttempts <= PLACE_ATTEMPTS && PlacementController.reposition(mc)) {
+                    stepStarted = false;
+                    return;
+                }
+                if (placeAttempts <= PLACE_ATTEMPTS) {
+                    stepStarted = false;
+                    return;
+                }
             }
             PLAN.poll();
             stepStarted = false;
@@ -1012,7 +1025,7 @@ public final class AcquireTask {
         BaritoneBridge.setSetting("allowSprint", "true");
         boolean ok = BaritoneBridge.mine(block);
         baritoneMine = ok;
-        lastMineHave = count(mc, step.item());
+        lastMineHave = countAny(mc, step.item());
         lastMineX = mc.player == null ? 0 : mc.player.getX();
         lastMineY = mc.player == null ? 0 : mc.player.getY();
         lastMineZ = mc.player == null ? 0 : mc.player.getZ();
@@ -1114,7 +1127,7 @@ public final class AcquireTask {
 
     /** 盯着 Baritone 挖：够了就叫停，没进展就补挖或换路线。 */
     private static void tickBaritoneMine(MinecraftClient mc, Step step, long now, int base) {
-        int have = count(mc, step.item());
+        int have = countAny(mc, step.item());
         int need = Math.max(1, step.count());
         if (have >= base + need) {
             BaritoneBridge.stop();
@@ -1311,6 +1324,27 @@ public final class AcquireTask {
         }
     }
 
+    /** 背包里（或正在砍的）是哪种木头：oak / spruce / birch …；没有就返回 null。 */
+    private static String woodType(MinecraftClient mc) {
+        if (mc == null || mc.player == null) {
+            return null;
+        }
+        var inventory = mc.player.getInventory();
+        for (int slot = 0; slot < 36; slot++) {
+            var stack = inventory.getStack(slot);
+            if (stack.isEmpty()) {
+                continue;
+            }
+            String id = Registries.ITEM.getId(stack.getItem()).getPath();
+            for (String suffix : List.of("_log", "_stem", "_wood", "_hyphae", "_planks")) {
+                if (id.endsWith(suffix)) {
+                    return id.substring(0, id.length() - suffix.length());
+                }
+            }
+        }
+        return null;
+    }
+
     private static String resolveToken(String token) {
         if (token == null || token.isBlank()) {
             return null;
@@ -1358,6 +1392,10 @@ public final class AcquireTask {
                 String block = blockFor(id);
                 if (block != null && MiningController.anyNearby(MinecraftClient.getInstance(), block, 16)) {
                     score += 100;
+                }
+                String wood = woodType(MinecraftClient.getInstance());
+                if (wood != null && id.startsWith(wood + "_")) {
+                    score += 400; // 手上的木头优先：不然会去合橡木木板却只有云杉
                 }
                 int pref = COMMON_PREF.indexOf(id);
                 if (pref >= 0) {

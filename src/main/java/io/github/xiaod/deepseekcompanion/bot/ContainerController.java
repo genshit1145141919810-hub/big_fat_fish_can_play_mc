@@ -696,13 +696,13 @@ public final class ContainerController {
 
     /** 手边有没有能用的工作台：规划阶段据此决定要不要现做一个放下来。 */
     public static boolean tableNearby(MinecraftClient mc) {
-        return findBlock(mc, Blocks.CRAFTING_TABLE, 6) != null;
+        return findBlock(mc, Blocks.CRAFTING_TABLE, 8) != null;
     }
 
     /** 手边有没有能烧东西的熔炉：没有的话规划阶段要先做一个、放一个。 */
     public static boolean furnaceNearby(MinecraftClient mc) {
-        return findBlock(mc, Blocks.FURNACE, 6) != null
-                || findBlock(mc, Blocks.BLAST_FURNACE, 6) != null;
+        return findBlock(mc, Blocks.FURNACE, 8) != null
+                || findBlock(mc, Blocks.BLAST_FURNACE, 8) != null;
     }
 
     private static BlockPos findBlock(MinecraftClient mc, net.minecraft.block.Block block, int radius) {
