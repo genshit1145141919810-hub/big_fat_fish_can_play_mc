@@ -22,6 +22,10 @@ public final class CompanionConfig {
     // ---- DeepSeek ----
     public String apiKey = "";
     public String baseUrl = "https://api.deepseek.com";
+    /** 有的服务（Azure/自建网关）不用 Authorization: Bearer，改成自定义头。 */
+    public String apiKeyHeader = "Authorization";
+    /** 老服务只认 max_tokens，新 OpenAI 模型只认 max_completion_tokens。 */
+    public String maxTokensParam = "max_tokens";
     public String model = "deepseek-chat";
     public double temperature = 0.9;
     public int maxTokens = 200;
@@ -180,11 +184,29 @@ public final class CompanionConfig {
         return apiKey != null && !apiKey.isBlank();
     }
 
+    /**
+     * 兼容各种 OpenAI 风格地址：
+     * https://api.deepseek.com → .../v1/chat/completions
+     * https://api.openai.com/v1 → .../v1/chat/completions
+     * .../chat/completions 原样使用；带 api-version= 的 Azure 地址原样使用。
+     */
     public String chatEndpoint() {
         String base = (baseUrl == null || baseUrl.isBlank()) ? "https://api.deepseek.com" : baseUrl.trim();
         while (base.endsWith("/")) {
             base = base.substring(0, base.length() - 1);
         }
-        return base.endsWith("/chat/completions") ? base : base + "/chat/completions";
+        if (base.endsWith("/chat/completions") || base.contains("api-version=")) {
+            return base;
+        }
+        if (base.endsWith("/v1") || base.endsWith("/v1beta") || base.endsWith("/openai")) {
+            return base + "/chat/completions";
+        }
+        return base + "/v1/chat/completions";
+    }
+
+    /** 默认走 Authorization: Bearer；换成自定义头时直接放 key。 */
+    public boolean usesBearerAuth() {
+        return apiKeyHeader == null || apiKeyHeader.isBlank()
+                || apiKeyHeader.equalsIgnoreCase("Authorization");
     }
 }

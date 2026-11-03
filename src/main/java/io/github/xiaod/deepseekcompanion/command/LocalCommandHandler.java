@@ -48,6 +48,8 @@ public final class LocalCommandHandler {
             case "key" -> setKey(arg);
             case "login" -> login(arg);
             case "model" -> setModel(arg);
+            case "base" -> setBase(arg);
+            case "header" -> setKeyHeader(arg);
             case "owner" -> setOwner(arg);
             case "say" -> BotBrain.say(arg);
             case "follow" -> follow();
@@ -114,6 +116,8 @@ public final class LocalCommandHandler {
         say("§b.xd help");
         say("§7.xd key <API Key> §f- 设置 DeepSeek 密钥（只存本地）");
         say("§7.xd model <名字> §f- 换模型");
+        say("§7.xd base <url> §f- 换 OpenAI 兼容接口地址");
+        say("§7.xd header <名字> §f- 换密钥请求头（默认 Authorization）");
         say("§7.xd owner <你的ID> §f- 指定要跟的人");
         say("§7.xd status §f- 状态");
         say("§7.xd commands §f- 模型被允许的全部动作（白名单）");
@@ -192,6 +196,31 @@ public final class LocalCommandHandler {
         cfg.apiKey = arg;
         CompanionConfig.save();
         say("§a密钥已保存 (" + mask(cfg.apiKey) + ")");
+    }
+
+    /** .xd base <url>：换成任何 OpenAI 兼容地址（OpenAI、本地 Ollama、自建网关…）。 */
+    private static void setBase(String arg) {
+        if (arg.isBlank()) {
+            say("§7当前: §f" + CompanionConfig.get().baseUrl);
+            say("§c用法: .xd base https://api.openai.com/v1");
+            return;
+        }
+        CompanionConfig cfg = CompanionConfig.get();
+        cfg.baseUrl = arg.strip();
+        CompanionConfig.save();
+        say("§a接口地址: " + cfg.chatEndpoint());
+    }
+
+    /** .xd header <名字>：Azure 这类不用 Authorization 的服务改这里。 */
+    private static void setKeyHeader(String arg) {
+        if (arg.isBlank()) {
+            say("§7当前: §f" + CompanionConfig.get().apiKeyHeader);
+            return;
+        }
+        CompanionConfig cfg = CompanionConfig.get();
+        cfg.apiKeyHeader = arg.strip();
+        CompanionConfig.save();
+        say("§a密钥请求头: " + cfg.apiKeyHeader);
     }
 
     private static void setModel(String arg) {

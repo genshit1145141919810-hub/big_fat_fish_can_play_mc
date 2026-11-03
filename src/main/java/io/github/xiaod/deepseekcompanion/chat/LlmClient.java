@@ -58,7 +58,9 @@ public final class LlmClient {
         JsonObject body = new JsonObject();
         body.addProperty("model", cfg.model);
         body.addProperty("temperature", cfg.temperature);
-        body.addProperty("max_tokens", cfg.maxTokens);
+        String tokenParam = (cfg.maxTokensParam == null || cfg.maxTokensParam.isBlank())
+                ? "max_tokens" : cfg.maxTokensParam.trim();
+        body.addProperty(tokenParam, cfg.maxTokens);
         body.addProperty("stream", false);
 
         JsonArray messages = new JsonArray();
@@ -71,14 +73,14 @@ public final class LlmClient {
         messages.add(msg("user", userText));
         body.add("messages", messages);
 
-        HttpRequest request = HttpRequest.newBuilder(URI.create(cfg.chatEndpoint()))
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + cfg.apiKey)
-                .timeout(Duration.ofSeconds(cfg.timeoutSeconds))
-                .POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(body), StandardCharsets.UTF_8))
-                .build();
-
-        HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        HttpResponse<String> response = send(cfg, GSON.toJson(body));
+        // 新模型只认 max_completion_tokens：400 时自动换一次参数名
+        if (response.statusCode() == 400 && response.body().contains("max_completion_tokens")
+                && !"max_completion_tokens".equals(tokenParam)) {
+            body.remove("max_tokens");
+            body.addProperty("max_completion_tokens", cfg.maxTokens);
+            response = send(cfg, GSON.toJson(body));
+        }
         JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
         if (response.statusCode() != 200) {
             String message = json.has("error")
@@ -90,7 +92,56 @@ public final class LlmClient {
         if (choices == null || choices.isEmpty()) {
             throw new IllegalStateException("empty choices");
         }
-        return choices.get(0).getAsJsonObject().getAsJsonObject("message").get("content").getAsString().trim();
+        JsonObject choice = choices.get(0).getAsJsonObject();
+        JsonObject message = choice.has("message") ? choice.getAsJsonObject("message") : null;
+        String text = message == null ? null : contentOf(message);
+        if (text == null && choice.has("text")) {
+            text = choice.get("text").getAsString();
+        }
+        if (text == null) {
+            throw new IllegalStateException("empty content");
+        }
+        return text.trim();
+    }
+
+    /** 发请求：按配置挑认证头（Bearer 或自定义头）。 */
+    private static HttpResponse<String> send(CompanionConfig cfg, String json) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(cfg.chatEndpoint()))
+                .header("Content-Type", "application/json")
+                .timeout(Duration.ofSeconds(cfg.timeoutSeconds))
+                .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8));
+        String header = (cfg.apiKeyHeader == null || cfg.apiKeyHeader.isBlank())
+                ? "Authorization" : cfg.apiKeyHeader.trim();
+        builder.header(header, cfg.usesBearerAuth() ? "Bearer " + cfg.apiKey : cfg.apiKey);
+        return HTTP.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    }
+
+    /** 内容可能是字符串，也可能是 [{type:text,text:...}] 数组（部分兼容实现这么返回）。 */
+    private static String contentOf(JsonObject message) {
+        if (!message.has("content")) {
+            return null;
+        }
+        var content = message.get("content");
+        if (content.isJsonNull()) {
+            return message.has("refusal") ? message.get("refusal").getAsString() : null;
+        }
+        if (content.isJsonPrimitive()) {
+            return content.getAsString();
+        }
+        if (content.isJsonArray()) {
+            StringBuilder sb = new StringBuilder();
+            for (var part : content.getAsJsonArray()) {
+                if (!part.isJsonObject()) {
+                    continue;
+                }
+                JsonObject o = part.getAsJsonObject();
+                if (o.has("text") && o.get("text").isJsonPrimitive()) {
+                    sb.append(o.get("text").getAsString());
+                }
+            }
+            return sb.length() == 0 ? null : sb.toString();
+        }
+        return null;
     }
 
     private static JsonObject msg(String role, String content) {
