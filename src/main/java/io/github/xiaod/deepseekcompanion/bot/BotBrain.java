@@ -427,7 +427,7 @@ public final class BotBrain {
             if (owner != null) {
                 double distanceSq = owner.squaredDistanceTo(mc.player);
                 boolean tooFar = distanceSq > (double) cfg.followDistance * cfg.followDistance;
-                boolean busy = TaskTracker.isBusy();
+                boolean busy = TaskTracker.isBusy() || AcquireTask.isBusy();
                 boolean emergency = cfg.abandonTaskDistance > 0
                         && distanceSq > (double) cfg.abandonTaskDistance * cfg.abandonTaskDistance;
                 if (tooFar && (!busy || emergency)) {

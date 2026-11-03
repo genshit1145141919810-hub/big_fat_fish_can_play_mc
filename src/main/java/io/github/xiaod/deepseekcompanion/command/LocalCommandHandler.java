@@ -61,6 +61,7 @@ public final class LocalCommandHandler {
             case "recipe" -> recipe(arg);
             case "craft" -> craft(arg);
             case "get" -> get(arg);
+            case "why" -> say(io.github.xiaod.deepseekcompanion.bot.AcquireTask.diagnose(arg, 1));
             case "inv" -> say(io.github.xiaod.deepseekcompanion.bot.ActionExecutor.execute(
                     MinecraftClient.getInstance(),
                     new io.github.xiaod.deepseekcompanion.chat.Intent("",

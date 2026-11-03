@@ -43,9 +43,64 @@ public final class MiningController {
         return target != null;
     }
 
+    /** 手上得拿着镐：拿错东西挖，方块会碎但什么都不掉。 */
+    private static void ensurePickaxe(MinecraftClient mc) {
+        if (mc.player == null) {
+            return;
+        }
+        var inventory = mc.player.getInventory();
+        int best = -1;
+        int bestTier = -1;
+        for (int slot = 0; slot < 36; slot++) {
+            var stack = inventory.getStack(slot);
+            if (stack.isEmpty()) {
+                continue;
+            }
+            String id = Registries.ITEM.getId(stack.getItem()).getPath();
+            if (!id.endsWith("_pickaxe")) {
+                continue;
+            }
+            int tier = id.startsWith("netherite") ? 5 : id.startsWith("diamond") ? 4
+                    : id.startsWith("iron") ? 3 : id.startsWith("stone") ? 2
+                    : id.startsWith("golden") ? 1 : 0;
+            if (tier > bestTier) {
+                bestTier = tier;
+                best = slot;
+            }
+        }
+        if (best < 0) {
+            return;
+        }
+        if (best < 9) {
+            inventory.setSelectedSlot(best);
+            return;
+        }
+        // 在主背包里：换到当前手上的格子
+        int hotbar = inventory.getSelectedSlot();
+        int handlerSlot = -1;
+        var handler = mc.player.currentScreenHandler;
+        for (var slot : handler.slots) {
+            if (slot.inventory == inventory && slot.getIndex() == best) {
+                handlerSlot = slot.id;
+                break;
+            }
+        }
+        if (handlerSlot < 0 || mc.interactionManager == null) {
+            return;
+        }
+        mc.interactionManager.clickSlot(handler.syncId, handlerSlot, hotbar,
+                net.minecraft.screen.slot.SlotActionType.SWAP, mc.player);
+    }
+
+    /** 最近一次挖矿任务真正挖掉了几块：用来区分"没挖到"和"挖了没捡到"。 */
+    public static int minedCount() {
+        return broken;
+    }
+
     /** Starts a bounded mining job: count blocks of {@code id}, or any log when chop is true. */
     public static boolean start(MinecraftClient mc, String id, boolean chopMode, int count) {
         cancel(mc);
+        ensurePickaxe(mc);
         blockId = id;
         chop = chopMode;
         remaining = Math.max(1, count);
@@ -146,6 +201,46 @@ public final class MiningController {
         return mc.world.getBlockState(pos).getCollisionShape(mc.world, pos).isEmpty()
                 && mc.world.getBlockState(pos.up()).getCollisionShape(mc.world, pos.up()).isEmpty()
                 && !mc.world.getBlockState(pos.down()).getCollisionShape(mc.world, pos.down()).isEmpty();
+    }
+
+    /** 最近的这种方块有多远（没找到返回 -1）：挑配料时用它比远近。 */
+    public static double nearestDistance(MinecraftClient mc, String id, int radius) {
+        if (mc.player == null || mc.world == null || id == null) {
+            return -1.0;
+        }
+        int r = Math.max(1, Math.min(radius, SCAN_RADIUS));
+        BlockPos origin = mc.player.getBlockPos();
+        int steps = 0;
+        for (BlockPos pos : BlockPos.iterateOutwards(origin, r, r, r)) {
+            if (++steps > MAX_SCAN_STEPS) {
+                break;
+            }
+            BlockState state = mc.world.getBlockState(pos);
+            if (!state.isAir() && Registries.BLOCK.getId(state.getBlock()).getPath().equals(id)) {
+                return Math.sqrt(pos.getSquaredDistance(origin));
+            }
+        }
+        return -1.0;
+    }
+
+    /** 附近有没有这种方块：规划阶段用它挑"真有得挖"的材料，而不是挑个挖不到的。 */
+    public static boolean anyNearby(MinecraftClient mc, String id, int radius) {
+        if (mc.player == null || mc.world == null || id == null) {
+            return false;
+        }
+        int r = Math.max(1, Math.min(radius, SCAN_RADIUS));
+        BlockPos origin = mc.player.getBlockPos();
+        int steps = 0;
+        for (BlockPos pos : BlockPos.iterateOutwards(origin, r, r, r)) {
+            if (++steps > MAX_SCAN_STEPS) {
+                break;
+            }
+            BlockState state = mc.world.getBlockState(pos);
+            if (!state.isAir() && Registries.BLOCK.getId(state.getBlock()).getPath().equals(id)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean acquire(MinecraftClient mc) {

@@ -27,8 +27,21 @@ public final class BaritoneBridge {
                     // Baritone 原生设置：只放行"设置名 + 布尔/数值"
                     + "|[a-z]{3,32} (?:true|false|[0-9]{1,3}(?:\\.[0-9]{1,3})?))$");
     private static boolean warned;
+    /** 最近一次"该走动"的指令：卡住检测只看这个，而不是看任务是不是还在。 */
+    private static long lastMoveAt;
+    private static String lastMoveCommand;
 
     private BaritoneBridge() {
+    }
+
+    /** 我们刚让它走动、还没走到：巴特勒据此判断"不动了"是不是异常。 */
+    public static boolean expectingMovement() {
+        return lastMoveCommand != null && System.currentTimeMillis() - lastMoveAt < 60_000L;
+    }
+
+    /** 卡住时先重发同一条路线，而不是直接放弃任务。 */
+    public static boolean repeatMovement() {
+        return lastMoveCommand != null && exec(lastMoveCommand);
     }
 
     public static boolean available() {
@@ -56,7 +69,20 @@ public final class BaritoneBridge {
         String prefix = cfg.baritonePrefix == null || cfg.baritonePrefix.isEmpty() ? "#" : cfg.baritonePrefix;
         mc.getNetworkHandler().sendChatMessage(prefix + command);
         DeepseekCompanionClient.LOGGER.info("[XiaoD] baritone <- {}{}", prefix, command);
+        noteMovement(command);
         return true;
+    }
+
+    /** 只记"需要走过去"的指令；stop 之后就不再指望它移动了。 */
+    private static void noteMovement(String command) {
+        if (command.equals("stop")) {
+            lastMoveCommand = null;
+            return;
+        }
+        if (command.startsWith("goto ") || command.equals("come") || command.startsWith("follow ")) {
+            lastMoveCommand = command;
+            lastMoveAt = System.currentTimeMillis();
+        }
     }
 
     public static boolean followPlayer(String name) {

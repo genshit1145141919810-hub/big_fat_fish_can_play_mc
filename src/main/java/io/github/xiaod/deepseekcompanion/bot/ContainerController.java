@@ -27,6 +27,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -63,10 +64,15 @@ public final class ContainerController {
     private static long until;
     /** 合成网格宽度：工作台 3，自己背包 2。 */
     private static int gridWidth = 3;
+    /** 打开工作台/熔炉时"走过去"的时限与上一次发移动指令的时间。 */
+    private static long openDeadline;
+    private static long lastOpenGoto;
     /** 合成树：树模式下的待执行步骤。 */
     private static final Deque<io.github.xiaod.deepseekcompanion.integrations.CraftTree.Step> treeQueue =
             new ArrayDeque<>();
     private static boolean treeMode;
+    /** 这一次要连着合几份：规划里说"合三次木板"就得真合三次。 */
+    private static int pendingCrafts = 1;
 
     private ContainerController() {
     }
@@ -76,8 +82,20 @@ public final class ContainerController {
     }
 
     public static boolean craft(MinecraftClient mc, String itemId) {
+        return craft(mc, itemId, 1);
+    }
+
+    /** {@code crafts} = 一次任务里连着合成几份（规划排好的数量）。 */
+    public static boolean craft(MinecraftClient mc, String itemId, int crafts) {
         if (mc.player == null) {
             return false;
+        }
+        pendingCrafts = Math.max(1, crafts);
+        if (pendingCrafts > 1) {
+            // 规划已经算好了要合几份、材料也备齐了：直接照数量合，别再让合成树重算一遍
+            treeMode = false;
+            treeQueue.clear();
+            return startSingleCraft(mc, itemId);
         }
         List<io.github.xiaod.deepseekcompanion.integrations.CraftTree.Step> plan =
                 io.github.xiaod.deepseekcompanion.integrations.CraftTree.plan(mc, itemId);
@@ -102,6 +120,7 @@ public final class ContainerController {
             return true;
         }
         targetItem = step.item();
+        pendingCrafts = Math.max(1, step.crafts());
         BlockPos table = findBlock(mc, Blocks.CRAFTING_TABLE, 6);
         boolean big = false;
         for (var recipe : io.github.xiaod.deepseekcompanion.integrations.CraftRecipes.find(step.item())) {
@@ -240,6 +259,7 @@ public final class ContainerController {
         treeMode = false;
         mode = Mode.NONE;
         phase = Phase.FIND;
+        openDeadline = 0L;
         if (mc.player != null && mc.currentScreen != null) {
             mc.player.closeHandledScreen();
         }
@@ -273,6 +293,23 @@ public final class ContainerController {
                     return;
                 }
                 p.lookAt(EntityAnchorArgumentType.EntityAnchor.EYES, Vec3d.ofCenter(blockPos));
+                // 5~6 格外的台子点不到：先走过去，别在那儿干点空气
+                if (p.getEyePos().distanceTo(Vec3d.ofCenter(blockPos)) > 4.0) {
+                    if (openDeadline == 0L) {
+                        openDeadline = now + 15_000L;
+                    }
+                    if (now > openDeadline) {
+                        openDeadline = 0L;
+                        fail("走不到工作台旁边（太远或被挡住）");
+                        return;
+                    }
+                    if (BaritoneBridge.available() && now - lastOpenGoto > 2000L) {
+                        BaritoneBridge.gotoPos(blockPos.getX(), blockPos.getY() + 1, blockPos.getZ());
+                        lastOpenGoto = now;
+                    }
+                    return;
+                }
+                openDeadline = 0L;
                 if (mode == Mode.SMELT
                         && station == io.github.xiaod.deepseekcompanion.integrations.SmeltRecipes.Station.CAMPFIRE) {
                     // campfire has no GUI: hold the food and right-click to place
@@ -360,11 +397,20 @@ public final class ContainerController {
             case CLICKS -> {
                 Click click = QUEUE.poll();
                 if (click == null) {
-                    p.closeHandledScreen();
                     if (mode == Mode.SMELT) {
+                        p.closeHandledScreen();
                         phase = Phase.WAIT;
                         until = now + 12_000L;
-                    } else if (treeMode) {
+                        return;
+                    }
+                    if (pendingCrafts > 1) {
+                        // 还要合下一份：界面留着，重新摆一遍材料
+                        pendingCrafts--;
+                        buildCraftClicks(mc, p.currentScreenHandler);
+                        return;
+                    }
+                    p.closeHandledScreen();
+                    if (treeMode) {
                         mode = Mode.NONE;
                         startTreeStep(mc);
                     } else {
@@ -376,6 +422,14 @@ public final class ContainerController {
                         click.slot(), click.button(), click.type(),
                         p.currentScreenHandler.slots.get(click.slot()).getStack().getItem(),
                         QUEUE.size());
+                if (click.slot() == 0 && click.type() == SlotActionType.QUICK_MOVE) {
+                    // 取成品前先看一眼格子：摆错东西时这里能直接说出原因，而不是悄悄合出别的
+                    ItemStack result = p.currentScreenHandler.slots.get(0).getStack();
+                    if (result.isEmpty()) {
+                        fail("合成格没摆对（" + targetItem + "），格子里的东西：" + gridContents(p.currentScreenHandler));
+                        return;
+                    }
+                }
                 mc.interactionManager.clickSlot(p.currentScreenHandler.syncId, click.slot(),
                         click.button(), click.type(), p);
             }
@@ -420,7 +474,7 @@ public final class ContainerController {
 
     private static void fail(String why) {
         DeepseekCompanionClient.LOGGER.warn("[XiaoD] container action failed: {}", why);
-        BotBrain.say(why);
+        BotBrain.tell(why); // 诊断信息只给自己看，不往公屏发
         QUEUE.clear();
         mode = Mode.NONE;
         MinecraftClient mc = MinecraftClient.getInstance();
@@ -439,11 +493,16 @@ public final class ContainerController {
             return;
         }
         PlayerInventory inventory = mc.player.getInventory();
+        String missing = null;
+        boolean tooBig = false;
         for (var recipe : candidates) {
             if (recipe.width() > gridWidth || recipe.height() > gridWidth) {
-                continue; // 2x2 网格装不下 3x3 的配方
+                tooBig = true; // 2x2 网格装不下 3x3 的配方
+                continue;
             }
-            List<Click> plan = new ArrayList<>();
+            // 同一摞材料只用抓一次：抓起整摞 → 每个格子右键放一个 → 剩下的放回
+            Map<Integer, java.util.List<Integer>> groups = new java.util.LinkedHashMap<>();
+            Map<Integer, Integer> used = new java.util.HashMap<>();
             boolean ok = true;
             for (int row = 0; row < recipe.height() && ok; row++) {
                 for (int col = 0; col < recipe.width() && ok; col++) {
@@ -451,23 +510,37 @@ public final class ContainerController {
                     if (token == null) {
                         continue;
                     }
-                    int invSlot = findCraftSlot(inventory, token);
+                    int invSlot = findCraftSlot(inventory, token, used);
                     if (invSlot < 0) {
+                        missing = token; // 缺的就是这一格的材料
                         ok = false;
                         break;
                     }
+                    used.merge(invSlot, 1, Integer::sum);
                     int handlerSlot = handlerSlot(handler, inventory, invSlot);
                     if (handlerSlot < 0) {
                         ok = false;
                         break;
                     }
-                    int gridSlot = 1 + row * gridWidth + col;
-                    plan.add(new Click(handlerSlot, 0, SlotActionType.PICKUP));
-                    plan.add(new Click(gridSlot, 1, SlotActionType.PICKUP));
-                    plan.add(new Click(handlerSlot, 0, SlotActionType.PICKUP));
+                    groups.computeIfAbsent(handlerSlot, k -> new ArrayList<>())
+                            .add(1 + row * gridWidth + col);
                 }
             }
             if (ok) {
+                List<Click> plan = new ArrayList<>();
+                // 先清空合成格：上一轮失败留下的材料会把这一轮摆歪
+                for (int slot = 1; slot <= gridWidth * gridWidth; slot++) {
+                    if (!handler.slots.get(slot).getStack().isEmpty()) {
+                        plan.add(new Click(slot, 0, SlotActionType.QUICK_MOVE));
+                    }
+                }
+                for (var group : groups.entrySet()) {
+                    plan.add(new Click(group.getKey(), 0, SlotActionType.PICKUP));
+                    for (int cell : group.getValue()) {
+                        plan.add(new Click(cell, 1, SlotActionType.PICKUP));
+                    }
+                    plan.add(new Click(group.getKey(), 0, SlotActionType.PICKUP));
+                }
                 io.github.xiaod.deepseekcompanion.DeepseekCompanionClient.LOGGER.info("[XiaoD] craft recipe {} grid={}x{} cells={} clicks={}",
                         recipe.result(), recipe.width(), recipe.height(),
                         java.util.Arrays.toString(recipe.cells()), plan.size());
@@ -476,14 +549,43 @@ public final class ContainerController {
                 return;
             }
         }
-        fail("材料不够: " + targetItem);
+        if (missing != null) {
+            fail("材料不够：" + targetItem + " 缺 " + missing);
+        } else if (tooBig) {
+            fail(targetItem + " 要 3x3 的台子，现在只有背包那 2x2");
+        } else {
+            fail("合成不了 " + targetItem);
+        }
+    }
+
+    /** 把合成格里的东西摊成一句话，摆错时好查。 */
+    private static String gridContents(ScreenHandler handler) {
+        StringBuilder sb = new StringBuilder();
+        for (int slot = 1; slot <= gridWidth * gridWidth && slot < handler.slots.size(); slot++) {
+            ItemStack stack = handler.slots.get(slot).getStack();
+            if (stack.isEmpty()) {
+                continue;
+            }
+            sb.append('[').append(slot).append(']')
+                    .append(Registries.ITEM.getId(stack.getItem()).getPath())
+                    .append('x').append(stack.getCount()).append(' ');
+        }
+        return sb.length() == 0 ? "全空" : sb.toString().trim();
     }
 
     private static int findCraftSlot(PlayerInventory inventory, String token) {
+        return findCraftSlot(inventory, token, java.util.Map.of());
+    }
+
+    /** 找一摞够用的材料：已经派过用场的槽位要扣掉，不能四个格子都从同一摞里算。 */
+    private static int findCraftSlot(PlayerInventory inventory, String token, Map<Integer, Integer> used) {
         for (int slot = 0; slot < 36; slot++) {
             if (io.github.xiaod.deepseekcompanion.integrations.CraftRecipes
                     .matches(token, inventory.getStack(slot))) {
-                return slot;
+                int left = inventory.getStack(slot).getCount() - used.getOrDefault(slot, 0);
+                if (left > 0) {
+                    return slot;
+                }
             }
         }
         return -1;
@@ -590,6 +692,17 @@ public final class ContainerController {
             }
         }
         return -1;
+    }
+
+    /** 手边有没有能用的工作台：规划阶段据此决定要不要现做一个放下来。 */
+    public static boolean tableNearby(MinecraftClient mc) {
+        return findBlock(mc, Blocks.CRAFTING_TABLE, 6) != null;
+    }
+
+    /** 手边有没有能烧东西的熔炉：没有的话规划阶段要先做一个、放一个。 */
+    public static boolean furnaceNearby(MinecraftClient mc) {
+        return findBlock(mc, Blocks.FURNACE, 6) != null
+                || findBlock(mc, Blocks.BLAST_FURNACE, 6) != null;
     }
 
     private static BlockPos findBlock(MinecraftClient mc, net.minecraft.block.Block block, int radius) {

@@ -54,13 +54,17 @@ public final class Butler {
         if (FleeController.isFleeing() || BlockInController.isBusy() || CombatController.isRetreating()) {
             return;
         }
+        if (AcquireTask.isMining()) {
+            return; // 挖矿是 Baritone 的一个进程，插一句 goto 就会把它打断
+        }
         pickup(mc, p, now);
         unstuck(mc, p, now);
         dropJunk(mc, p, now);
     }
 
     private static void pickup(MinecraftClient mc, ClientPlayerEntity p, long now) {
-        if (PlanRunner.isPlanning() || MiningController.isBusy() || ContainerController.isBusy()) {
+        if (PlanRunner.isPlanning() || MiningController.isBusy() || ContainerController.isBusy()
+                || PlacementController.isBusy()) {
             return; // 正在干正事，别为了捡东西打断
         }
         if (now - lastPickup < PICKUP_COOLDOWN_MS) {
@@ -84,12 +88,39 @@ public final class Butler {
         }
     }
 
+    /** 马上过去把掉在地上的东西捡回来（不管冷却），挖完/挖卡住时叫一下。 */
+    public static void collectNow(MinecraftClient mc) {
+        if (mc.player == null || mc.world == null || AcquireTask.isMining()) {
+            return;
+        }
+        List<ItemEntity> drops = mc.world.getEntitiesByClass(ItemEntity.class,
+                mc.player.getBoundingBox().expand(12.0), e -> !e.isRemoved() && !e.getStack().isEmpty());
+        if (drops.isEmpty()) {
+            return;
+        }
+        drops.sort(Comparator.comparingDouble(e -> e.squaredDistanceTo(mc.player)));
+        ItemEntity nearest = drops.get(0);
+        if (nearest.squaredDistanceTo(mc.player) < 2.25) {
+            return;
+        }
+        lastPickup = System.currentTimeMillis();
+        if (BaritoneBridge.available()) {
+            BaritoneBridge.gotoPos(nearest.getBlockPos().getX(), nearest.getBlockPos().getY(),
+                    nearest.getBlockPos().getZ());
+            Perception.note("去捡 " + nearest.getStack().getName().getString());
+        }
+    }
+
     private static void unstuck(MinecraftClient mc, ClientPlayerEntity p, long now) {
-        boolean busy = PlanRunner.isPlanning() || MiningController.isBusy() || TaskTracker.isBusy();
-        if (!busy) {
+        boolean handsBusy = MiningController.isBusy() || ContainerController.isBusy()
+                || PlacementController.isBusy() || CombatController.isHunting();
+        boolean busy = PlanRunner.isPlanning() || TaskTracker.isBusy() || AcquireTask.isBusy();
+        // 只有"刚让它走过去、还没到"的时候，才谈得上卡住
+        if (!busy || handsBusy || !BaritoneBridge.expectingMovement()) {
             stuckStrikes = 0;
             lastX = p.getX();
             lastZ = p.getZ();
+            lastMoveCheck = now;
             return;
         }
         if (now - lastMoveCheck < STUCK_WINDOW_MS) {
@@ -106,19 +137,23 @@ public final class Butler {
         stuckStrikes++;
         DeepseekCompanionClient.LOGGER.info("[XiaoD] butler: stuck? strikes={} moved={}",
                 stuckStrikes, Math.round(moved * 100) / 100.0);
-        if (stuckStrikes >= 2) {
+        if (stuckStrikes >= 3) {
+            // 重发了两次路线还是不动：这时候才清理任务，让上层重新决定
             stuckStrikes = 0;
-            Perception.note("卡住了，停一下重新找路");
+            Perception.note("一直走不过去，停一下重新找路");
             TaskTracker.clear();
             MiningController.cancel(mc);
             BaritoneBridge.stop();
             return;
         }
-        // 先尝试跳一下，很多"卡住"只是被台阶挡住
+        if (stuckStrikes >= 2) {
+            // 先原样重发一次路线：多数"卡住"是寻路走岔了，重算就好
+            BaritoneBridge.repeatMovement();
+            return;
+        }
+        // 第一次只当作被台阶挡住：跳一下
         if (p.isOnGround()) {
             p.setVelocity(p.getVelocity().x, 0.42, p.getVelocity().z);
-        } else {
-            p.setVelocity(p.getVelocity().x + 0.12, p.getVelocity().y, p.getVelocity().z + 0.12);
         }
     }
 
