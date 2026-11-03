@@ -78,10 +78,16 @@ All commands are local; none of them spam server chat.
 
 ## Fan art credit
 
-The character artwork shown in the gallery is **fan art**, not official art of this project:
-- the artist allows redistribution; it is used here for **non-commercial** promotion only,
-- it is not affiliated with Mojang, Microsoft, DeepSeek, or the character's rights holder,
-- if the artist wants the credit changed or the image removed, open an issue and it will be handled.
+The character artwork shown in the gallery is **fan art**, not official art of this project. Its history:
+
+- 2025.6 — 上善无形 created the original character (OC) "溟月";
+- 2026.4.25 — ZipZipPipe drew the maid whale-girl and produced the first emoji pack;
+- 2026.7.10 — chibi version appeared;
+- 2026.8.2 — 上善无形 published a public statement authorising derivative works.
+
+This project uses the artwork for non-commercial promotion only, under that derivative-work authorisation.
+It is not affiliated with Mojang, Microsoft, DeepSeek, or the character's rights holders.
+If the original author or the artist wants the credit changed or the image removed, open an issue and it will be handled.
 
 ## Source
 
