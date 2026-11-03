@@ -1,5 +1,7 @@
 # 大肥鱼能玩MC（Big Fat Fish Can Play MC）
 
+<p align="center"><img src="docs/promo-maid.png" alt="大肥鱼能玩MC" width="420"></p>
+
 给你的 Minecraft 配一个**真实玩家账号**当搭子。
 
 它不是 NPC 生物，也不是假客户端：模组跑在你的第二个正版账号所在的真实客户端里，用普通玩家动作（走、挖、右键、点格子、发聊天）做事，寻路交给 Baritone。你在聊天里喊它，它会回话、跟着你、挖矿砍树、做饭、合成、打架、存箱子；一件事一个动作做不完时，它会自己拆成多步计划。
