@@ -76,6 +76,13 @@ All commands are local; none of them spam server chat.
 - It behaves like a player because it is a client: any server rule that forbids automation applies to it too. Ask the server owner first.
 - Not affiliated with Mojang, Microsoft, DeepSeek, or Baritone.
 
+## Fan art credit
+
+The character artwork shown in the gallery is **fan art**, not official art of this project:
+- the artist allows redistribution; it is used here for **non-commercial** promotion only,
+- it is not affiliated with Mojang, Microsoft, DeepSeek, or the character's rights holder,
+- if the artist wants the credit changed or the image removed, open an issue and it will be handled.
+
 ## Source
 
 Source and issue tracker: https://github.com/genshit1145141919810-hub/big_fat_fish_can_play_mc
