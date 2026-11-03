@@ -61,6 +61,17 @@ public final class LocalCommandHandler {
             case "recipe" -> recipe(arg);
             case "craft" -> craft(arg);
             case "get" -> get(arg);
+            case "dig" -> {
+                int levels = 10;
+                try {
+                    levels = Integer.parseInt(arg.strip());
+                } catch (Throwable ignored) {
+                    // 默认 10 级
+                }
+                io.github.xiaod.deepseekcompanion.bot.DigController.start(
+                        MinecraftClient.getInstance(), Math.max(1, levels));
+                say("挖 " + levels + " 级阶梯下去");
+            }
             case "why" -> say(io.github.xiaod.deepseekcompanion.bot.AcquireTask.diagnose(arg, 1));
             case "inv" -> say(io.github.xiaod.deepseekcompanion.bot.ActionExecutor.execute(
                     MinecraftClient.getInstance(),

@@ -44,7 +44,7 @@ public final class MiningController {
     }
 
     /** 手上得拿着镐：拿错东西挖，方块会碎但什么都不掉。 */
-    private static void ensurePickaxe(MinecraftClient mc) {
+    public static void equipPickaxe(MinecraftClient mc) {
         if (mc.player == null) {
             return;
         }
@@ -100,7 +100,7 @@ public final class MiningController {
     /** Starts a bounded mining job: count blocks of {@code id}, or any log when chop is true. */
     public static boolean start(MinecraftClient mc, String id, boolean chopMode, int count) {
         cancel(mc);
-        ensurePickaxe(mc);
+        equipPickaxe(mc);
         blockId = id;
         chop = chopMode;
         remaining = Math.max(1, count);

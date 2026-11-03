@@ -389,6 +389,7 @@ public final class BotBrain {
         PortalController.tick(mc);
         DimensionWatch.tick(mc);
         MiningController.tick(mc);
+        DigController.tick(mc);
         ContainerController.tick(mc);
         ArmorController.tick(mc, CompanionConfig.get());
         LoginController.tick(mc, CompanionConfig.get());
@@ -440,6 +441,7 @@ public final class BotBrain {
         }
 
         if (cfg.enableAutoFollow && cfg.ownerName != null && !cfg.ownerName.isBlank()
+                && !AcquireTask.isBusy() && !TaskTracker.isBusy()
                 && now - lastOwnerAsk > 60_000L && GameSnapshot.findOwner(mc, cfg) == null) {
             lastOwnerAsk = now;
             tell(pick("你在哪？我找不到你了", "报个坐标，我过去找你", "看不着你了，你在哪片？"));

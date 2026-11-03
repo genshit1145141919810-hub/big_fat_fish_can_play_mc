@@ -170,6 +170,8 @@ public final class AcquireTask {
     private static final List<String> TRACE = new ArrayList<>();
     /** 这一步改用自己的挖矿（Baritone 找不到路时）。 */
     private static boolean selfMine;
+    /** 深挖那一步：交给 Baritone 赶路到目标高度。 */
+    private static int digTargetY;
     /** 当前这一步是交给 Baritone 挖的。 */
     private static boolean baritoneMine;
     private static int lastMineHave;
@@ -741,6 +743,10 @@ public final class AcquireTask {
                 steps.add(new Step(Op.SMELT, item, prod.arg(), count));
             }
             case MINE -> {
+                // 钻石/红石：附近一块都没有时，才往下挖去找深板岩层；附近有就直接挖（洞里常有露天的）
+                if (PREFER_DEEPSLATE.contains(item) && !anyFamilyBlockNearby(item)) {
+                    steps.add(new Step(Op.DIG, item, "-54", 0));
+                }
                 // 人是估着挖的：按需要再宽一点，路上掉几个、漏捡几个也还有富余
                 int buffer = Math.max(1, (int) Math.ceil(count * MINE_ESTIMATE));
                 int total = count + buffer;
@@ -849,6 +855,15 @@ public final class AcquireTask {
                 tickBaritoneMine(mc, step, now, baseline);
                 return;
             }
+            if (step.op() == Op.DIG) {
+                if (DigController.isBusy()) {
+                    return;
+                }
+                PLAN.poll();
+                stepStarted = false;
+                stepSince = now;
+                return;
+            }
             if (busy) {
                 if (now - stepSince > STEP_TIMEOUT_MS) {
                     nextCandidate(mc, step + " 超时");
@@ -908,7 +923,7 @@ public final class AcquireTask {
             case MINE -> startMine(mc, step);
             case HUNT -> CombatController.startHunt(mc, step.arg());
             case PLACE -> PlacementController.place(mc, step.item());
-            case DIG -> DigController.start(mc, Math.max(1, step.count()));
+            case DIG -> startDeepDig(mc, step);
         };
         stepStarted = true;
         stepSince = now;
@@ -949,11 +964,26 @@ public final class AcquireTask {
     }
 
     /** 有 Baritone 就让它的 mine 自己走过去挖：会走位、会捡东西，比我们再写一遍靠谱。 */
+    /** 这些矿在深板岩层更多：同族里有深板岩变体就先挖它。 */
+    private static final Set<String> PREFER_DEEPSLATE = Set.of(
+            "diamond", "deepslate_diamond_ore", "redstone", "deepslate_redstone_ore");
+
     /** 挖矿目标：同族里离得最近的方块（没有橡木就挖云杉，没有铁矿就挖深板岩铁矿）。 */
     private static String mineBlockFor(String item) {
         MinecraftClient mc = MinecraftClient.getInstance();
         String best = null;
         double bestScore = Double.MAX_VALUE;
+        boolean preferDeepslate = PREFER_DEEPSLATE.contains(item);
+        if (preferDeepslate) {
+            // 钻石/红石就该去深板岩层：有深板岩变体就直接选它，别在原地找浅层的
+            for (String variant : ItemFamilies.variants(item)) {
+                for (String block : BlockDrops.blocksFor(variant)) {
+                    if (block.startsWith("deepslate_")) {
+                        return block;
+                    }
+                }
+            }
+        }
         for (String variant : ItemFamilies.variants(item)) {
             for (String block : BlockDrops.blocksFor(variant)) {
                 double dist = MiningController.nearestDistance(mc, block, 24);
@@ -991,7 +1021,49 @@ public final class AcquireTask {
         return ok;
     }
 
+    /** 挖阶梯下去到目标高度（Baritone 不肯往垂直井里走，这一件只能自己来）。 */
+    private static boolean startDeepDig(MinecraftClient mc, Step step) {
+        if (mc.player == null) {
+            return false;
+        }
+        int targetY = deepY(step.item());
+        try {
+            targetY = Integer.parseInt(step.arg());
+        } catch (Throwable ignored) {
+            // 用默认值
+        }
+        digTargetY = targetY;
+        int levels = Math.max(1, (int) Math.abs(mc.player.getBlockY() - targetY));
+        DeepseekCompanionClient.LOGGER.info("[XiaoD] acquire: 挖 {} 级阶梯到 y={}，再挖 {}", levels, targetY, step.item());
+        return DigController.start(mc, levels);
+    }
+
+
     /** 补挖一次（有上限）；同时把掉在地上的东西捡回来，别光顾着挖。 */
+    /** 同族方块附近有没有能挖的（附近没有才值得往下挖）。 */
+    private static boolean anyFamilyBlockNearby(String item) {
+        for (String variant : ItemFamilies.variants(item)) {
+            for (String block : BlockDrops.blocksFor(variant)) {
+                if (MiningController.nearestDistance(MinecraftClient.getInstance(), block, 24) >= 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** 这种东西该挖到多深：钻石/红石靠深板岩层，其它按常规矿层。 */
+    private static int deepY(String item) {
+        if (PREFER_DEEPSLATE.contains(item) || item.startsWith("deepslate_")) {
+            return -54;
+        }
+        if (item.startsWith("raw_iron") || item.startsWith("raw_copper") || item.startsWith("raw_gold")
+                || item.equals("coal") || item.equals("lapis_lazuli") || item.equals("iron_ingot")) {
+            return 16;
+        }
+        return 0;
+    }
+
     /** 目标在地底、Baritone 走不到时，先自己挖下去再试。 */
     private static boolean digDownThenRetry(Step step) {
         MinecraftClient mc = MinecraftClient.getInstance();
@@ -1006,12 +1078,12 @@ public final class AcquireTask {
             DeepseekCompanionClient.LOGGER.info("[XiaoD] acquire: 已经在 y={}，不再往下挖", (int) mc.player.getY());
             return false;
         }
-        int depth = (int) Math.max(8, Math.min(32, Math.abs(mc.player.getY() - (-50))));
+        int depth = Math.max(1, (int) Math.abs(mc.player.getY() - deepY(step.item())));
         mineRetries++;
         DeepseekCompanionClient.LOGGER.info("[XiaoD] acquire: {} 走不到，先往下挖 {} 格（第 {}/{} 次）",
                 step.item(), depth, mineRetries, MAX_MINE_RETRIES);
         PLAN.addFirst(new Step(Op.MINE, step.item(), step.arg(), Math.max(1, step.count())));
-        PLAN.addFirst(new Step(Op.DIG, step.item(), "", depth));
+        PLAN.addFirst(new Step(Op.DIG, step.item(), String.valueOf(deepY(step.item())), 0));
         return true;
     }
 

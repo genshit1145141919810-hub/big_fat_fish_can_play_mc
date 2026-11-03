@@ -10,99 +10,114 @@ import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
 
 /**
- * 往下挖：Baritone 的 mine 只会"走过去挖"，深层矿它找不到路。
- * 这里自己挖一条竖直井道，一块一块往下，遇到水/岩浆/基岩就停。
+ * 往正下方挖：挖开脚下一块，人自然落一层，再挖下一块。
+ *
+ * <p>垂直挖掘是最省事的往下方式，重力帮我们"走"完这一格。
+ * 只做一件保险：下面是液体、基岩，或者下面两格都是空气（洞穴）时停手。</p>
  */
 public final class DigController {
-    private static final int MAX_BLOCKS = 96;
+    private static final long STEP_TIMEOUT_MS = 20_000L;
 
-    private static BlockPos target;
     private static int remaining;
     private static boolean started;
     private static long lastProgressAt;
+    private static int levelY;
+    private static int lastLoggedLevel;
 
     private DigController() {
     }
 
     public static boolean isBusy() {
-        return target != null;
+        return remaining > 0;
     }
 
     public static int remaining() {
         return remaining;
     }
 
-    public static boolean start(MinecraftClient mc, int blocks) {
+    public static boolean start(MinecraftClient mc, int levels) {
         cancel(mc);
         if (mc.player == null || mc.world == null) {
             return false;
         }
-        remaining = Math.max(1, Math.min(blocks, MAX_BLOCKS));
+        MiningController.equipPickaxe(mc);
+        remaining = Math.max(1, Math.min(levels, 128));
         started = false;
-        target = mc.player.getBlockPos().down();
+        levelY = mc.player.getBlockY();
+        lastLoggedLevel = levelY;
         lastProgressAt = System.currentTimeMillis();
-        DeepseekCompanionClient.LOGGER.info("[XiaoD] dig: 往下挖 {} 格，从 {} 开始", remaining, target);
+        DeepseekCompanionClient.LOGGER.info("[XiaoD] dig: 往下挖 {} 格（从 y={}）", remaining, levelY);
         return true;
     }
 
     public static void cancel(MinecraftClient mc) {
-        if (target != null && mc.interactionManager != null) {
+        if (mc != null && mc.interactionManager != null) {
             mc.interactionManager.cancelBlockBreaking();
         }
-        target = null;
+        remaining = 0;
         started = false;
     }
 
     public static void tick(MinecraftClient mc) {
-        if (target == null || mc.player == null || mc.world == null || mc.interactionManager == null) {
+        if (remaining <= 0 || mc.player == null || mc.world == null || mc.interactionManager == null) {
             return;
         }
-        if (remaining <= 0) {
-            cancel(mc);
-            return;
+        if (!mc.player.isOnGround()) {
+            return; // 还在下落，等落地
         }
-        BlockState below = mc.world.getBlockState(target);
-        if (below.isAir()) {
-            // 已经空了：直接往下一格
-            step(mc);
-            return;
+        int y = mc.player.getBlockY();
+        if (y < levelY) {
+            remaining -= (levelY - y);
+            levelY = y;
+            started = false;
+            lastProgressAt = System.currentTimeMillis();
+            if (y != lastLoggedLevel) {
+                lastLoggedLevel = y;
+                DeepseekCompanionClient.LOGGER.info("[XiaoD] dig: 到 y={}，还差 {} 格", y, Math.max(0, remaining));
+            }
+            if (remaining <= 0) {
+                cancel(mc);
+                return;
+            }
         }
-        if (below.isOf(Blocks.BEDROCK) || !below.getFluidState().isEmpty()) {
-            DeepseekCompanionClient.LOGGER.info("[XiaoD] dig: 下面是 {}，停", below.getBlock());
-            cancel(mc);
-            return;
-        }
-        if (System.currentTimeMillis() - lastProgressAt > 20_000L) {
-            DeepseekCompanionClient.LOGGER.info("[XiaoD] dig: 挖不动，停");
+        if (System.currentTimeMillis() - lastProgressAt > STEP_TIMEOUT_MS) {
+            DeepseekCompanionClient.LOGGER.info("[XiaoD] dig: 挖不动（y={}），收工", y);
             cancel(mc);
             return;
         }
 
-        Vec3d center = Vec3d.ofCenter(target);
+        BlockPos below = mc.player.getBlockPos().down();
+        BlockState state = mc.world.getBlockState(below);
+        if (state.isAir()) {
+            return; // 已经在往下掉
+        }
+        // 往下连着的空气格数 = 挖穿后会掉多少格；掉 3 格以内无所谓，再多就换个地方
+        int drop = 0;
+        while (drop < 6 && mc.world.getBlockState(below.down(drop + 1)).isAir()) {
+            drop++;
+        }
+        if (state.isOf(Blocks.BEDROCK) || !state.getFluidState().isEmpty() || drop > 3) {
+            DeepseekCompanionClient.LOGGER.info("[XiaoD] dig: 下面不适合继续（{} / 落差 {} 格），停",
+                    state.getBlock(), drop);
+            cancel(mc);
+            return;
+        }
+        mineBlock(mc, below);
+    }
+
+    private static void mineBlock(MinecraftClient mc, BlockPos pos) {
+        Vec3d center = Vec3d.ofCenter(pos);
         mc.player.lookAt(EntityAnchorArgumentType.EntityAnchor.EYES, center);
         Vec3d eye = mc.player.getEyePos();
         Direction face = Direction.getFacing(center.x - eye.x, center.y - eye.y, center.z - eye.z);
         if (!started) {
-            mc.interactionManager.attackBlock(target, face);
+            mc.interactionManager.attackBlock(pos, face);
             started = true;
         }
-        BlockState before = mc.world.getBlockState(target);
-        mc.interactionManager.updateBlockBreakingProgress(target, face);
-        if (!mc.world.getBlockState(target).equals(before)) {
+        BlockState before = mc.world.getBlockState(pos);
+        mc.interactionManager.updateBlockBreakingProgress(pos, face);
+        if (!mc.world.getBlockState(pos).equals(before)) {
             lastProgressAt = System.currentTimeMillis();
-        }
-        if (mc.world.getBlockState(target).isAir()) {
-            step(mc);
-        }
-    }
-
-    private static void step(MinecraftClient mc) {
-        remaining--;
-        started = false;
-        lastProgressAt = System.currentTimeMillis();
-        target = mc.player.getBlockPos().down();
-        if (remaining <= 0) {
-            cancel(mc);
         }
     }
 }
