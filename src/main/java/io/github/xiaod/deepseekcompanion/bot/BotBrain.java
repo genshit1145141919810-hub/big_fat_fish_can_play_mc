@@ -390,6 +390,7 @@ public final class BotBrain {
         DimensionWatch.tick(mc);
         MiningController.tick(mc);
         DigController.tick(mc);
+        PlacedBlocks.tick(mc);
         ContainerController.tick(mc);
         ArmorController.tick(mc, CompanionConfig.get());
         LoginController.tick(mc, CompanionConfig.get());

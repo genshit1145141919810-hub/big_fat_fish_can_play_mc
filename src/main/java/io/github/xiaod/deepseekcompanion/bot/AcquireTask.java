@@ -922,7 +922,13 @@ public final class AcquireTask {
             case SMELT -> ContainerController.cook(mc, step.item());
             case MINE -> startMine(mc, step);
             case HUNT -> CombatController.startHunt(mc, step.arg());
-            case PLACE -> PlacementController.place(mc, step.item());
+            case PLACE -> {
+                boolean placedOk = PlacementController.place(mc, step.item());
+                if (placedOk) {
+                    PlacedBlocks.note();
+                }
+                yield placedOk;
+            }
             case DIG -> startDeepDig(mc, step);
         };
         stepStarted = true;
@@ -1214,6 +1220,7 @@ public final class AcquireTask {
             return;
         }
         running = false;
+        PlacedBlocks.recoverAll(); // 工作台、熔炉用完收回来
         int total = count(mc, finalGoal);
         DeepseekCompanionClient.LOGGER.info("[XiaoD] acquire finished: {} (now {})", finalGoal, total);
         EventLog.note("获取完成", finalGoal + " 现在 " + total + " 个");
@@ -1222,6 +1229,7 @@ public final class AcquireTask {
 
     private static void fail(MinecraftClient mc, String reason) {
         running = false;
+        PlacedBlocks.recoverAll();
         PLAN.clear();
         DeepseekCompanionClient.LOGGER.info("[XiaoD] acquire stage failed: {} ({})", goalItem, reason);
         Memory.noteFailure("获取 " + goalItem, reason);

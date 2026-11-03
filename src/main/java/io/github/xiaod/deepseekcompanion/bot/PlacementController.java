@@ -30,6 +30,14 @@ public final class PlacementController {
     /** 换手后等一 tick 再放：SWAP 的结果要等服务端同步回来。 */
     private static String pendingItem;
     private static long pendingUntil;
+    /** 最近一次放下的方块位置：用完要记得收回来。 */
+    private static BlockPos lastPlaced;
+
+    /** 刚放下的那一块在哪（没有就是 null）。 */
+    public static BlockPos lastPlaced() {
+        return lastPlaced;
+    }
+
     /** 放置前先清出来的一块空地。 */
     private static BlockPos clearTarget;
     private static boolean clearStarted;
@@ -202,6 +210,7 @@ public final class PlacementController {
                             new BlockHitResult(hit, Direction.UP, target, false));
                     p.swingHand(Hand.MAIN_HAND);
                     DeepseekCompanionClient.LOGGER.info("[XiaoD] placed {} on {}", id, target);
+                    lastPlaced = target;
                     return true;
                 }
             }
