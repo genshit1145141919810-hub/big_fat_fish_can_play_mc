@@ -68,6 +68,10 @@ public final class GameSnapshot {
             sb.append(" | 服务器协议 ").append(ViaBridge.describe(protocol));
         }
         sb.append(" | 记忆 ").append(Memory.summary());
+        String recentEvents = EventLog.summary();
+        if (!recentEvents.isBlank()) {
+            sb.append(" | 刚刚：").append(recentEvents);
+        }
         sb.append(Perception.snapshotSuffix(mc));
         String env = ModLinks.summary();
         if (!env.isBlank()) {

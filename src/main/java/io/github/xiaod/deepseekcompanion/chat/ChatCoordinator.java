@@ -94,7 +94,15 @@ public final class ChatCoordinator {
             DeepseekCompanionClient.LOGGER.info("[XiaoD] chat raw='{}' -> sender={} body='{}'",
                     raw, line.sender(), line.body());
         }
+        io.github.xiaod.deepseekcompanion.bot.EventLog.note("聊天", line.sender() + " 对小D 说：" + shorten(addressed));
         BotBrain.onPlayerSpoke(line.sender(), addressed);
+    }
+
+    private static String shorten(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.length() <= 30 ? text : text.substring(0, 30) + "…";
     }
 
     /** 自检：{@code .xd chat} 打印最近一条聊天原文 + 判定结果。 */

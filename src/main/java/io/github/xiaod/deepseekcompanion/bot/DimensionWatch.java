@@ -37,10 +37,19 @@ public final class DimensionWatch {
         String from = last;
         last = now;
         DeepseekCompanionClient.LOGGER.info("[XiaoD] dimension {} -> {}", from, now);
+        EventLog.note("换维度", "从 " + shortDim(from) + " 到 " + shortDim(now));
         MiningController.cancel(mc);
         TaskTracker.clear();
         FleeController.clear();
         PlanRunner.onDimensionChanged(from, now);
+    }
+
+    private static String shortDim(String dim) {
+        if (dim == null || dim.isBlank()) {
+            return "?";
+        }
+        int colon = dim.indexOf(':');
+        return colon < 0 ? dim : dim.substring(colon + 1);
     }
 
     /** 断线/回主菜单后，下一次进世界重新认维度。 */

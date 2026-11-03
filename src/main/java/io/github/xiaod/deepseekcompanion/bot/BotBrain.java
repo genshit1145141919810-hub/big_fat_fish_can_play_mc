@@ -374,7 +374,7 @@ public final class BotBrain {
 
     public static void tick(MinecraftClient mc) {
         if (mc.player == null || mc.world == null) {
-            DimensionWatch.reset(); TestDriver.reset(); avoidanceApplied = false;
+            DimensionWatch.reset(); EventLog.reset(); TestDriver.reset(); avoidanceApplied = false;
             return;
         }
         if (!isActiveAccount(mc)) {
@@ -400,7 +400,7 @@ public final class BotBrain {
         EnchantPicker.tick(mc);
         FleeController.tick(mc, CompanionConfig.get());
         TaskTracker.tick(mc);
-        PlanRunner.tick(mc); ActionRegistry.tickAll(PlanRunner.anyBusy()); AcquireTask.tick(mc); Butler.tick(mc, CompanionConfig.get()); Memory.flushIfDirty(); TestDriver.tick(mc); BlockInController.tick(mc, CompanionConfig.get()); PlacementController.tick(mc); if (!avoidanceApplied && CompanionConfig.get().useBaritoneAvoidance && BaritoneBridge.available()) { avoidanceApplied = true; BaritoneBridge.applyAvoidance(CompanionConfig.get().mobAvoidanceRadius, CompanionConfig.get().mobAvoidanceCoefficient); }
+        PlanRunner.tick(mc); ActionRegistry.tickAll(PlanRunner.anyBusy()); AcquireTask.tick(mc); Butler.tick(mc, CompanionConfig.get()); Memory.flushIfDirty(); EventLog.watchHealth(mc); TestDriver.tick(mc); BlockInController.tick(mc, CompanionConfig.get()); PlacementController.tick(mc); if (!avoidanceApplied && CompanionConfig.get().useBaritoneAvoidance && BaritoneBridge.available()) { avoidanceApplied = true; BaritoneBridge.applyAvoidance(CompanionConfig.get().mobAvoidanceRadius, CompanionConfig.get().mobAvoidanceCoefficient); }
         CompanionConfig cfg = CompanionConfig.get();
         PriorityMode.update(mc, cfg);
         long now = System.currentTimeMillis();

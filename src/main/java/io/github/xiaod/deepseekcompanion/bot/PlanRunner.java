@@ -177,6 +177,7 @@ public final class PlanRunner {
             return;
         }
         Perception.note("计划失败：" + reason);
+        EventLog.note("任务失败", goal + " → " + reason);
         io.github.xiaod.deepseekcompanion.bot.Memory.noteFailure(goal, reason);
         DeepseekCompanionClient.LOGGER.info("[XiaoD] plan replan #{}/{}: {}", replans, max, reason);
         waitingModel = true;

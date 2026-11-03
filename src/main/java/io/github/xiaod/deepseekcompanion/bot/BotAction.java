@@ -49,7 +49,8 @@ public enum BotAction {
     CONTAINERS("containers", "附近有哪些箱子、熔炉、工作台等站点", Kind.QUERY, ArgKind.NONE),
     PATH("path", "看自己当前任务/计划状态，判断是不是卡住了", Kind.QUERY, ArgKind.NONE),
     DROPS("drops", "看脚边掉落的物品（挖了没捡会误判材料）", Kind.QUERY, ArgKind.NONE),
-    PLAYERS("players", "看看附近有哪些玩家、拿着什么", Kind.QUERY, ArgKind.NONE);
+    PLAYERS("players", "看看附近有哪些玩家、拿着什么", Kind.QUERY, ArgKind.NONE),
+    EVENTS("events", "看看刚才发生了什么（受伤/死亡/换维度/任务成败）", Kind.QUERY, ArgKind.NONE);
 
     public enum Kind {
         PHYSICAL, QUERY

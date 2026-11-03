@@ -274,6 +274,7 @@ public final class AcquireTask {
 
     private static void succeeded(MinecraftClient mc, int have) {
         running = false;
+        EventLog.note("获取成功", itemId + " 现在 " + have + " 个");
         DeepseekCompanionClient.LOGGER.info("[XiaoD] acquire done: {} (now {})", itemId, have);
         BotBrain.tell("弄到了 " + itemId + "（现在 " + have + " 个）");
     }
@@ -282,6 +283,7 @@ public final class AcquireTask {
         running = false;
         DeepseekCompanionClient.LOGGER.info("[XiaoD] acquire failed: {} ({})", itemId, reason);
         Memory.noteFailure("获取 " + itemId, reason);
+        EventLog.note("获取失败", itemId + "：" + reason);
         BotBrain.tell("弄不到 " + itemId + "：" + reason);
     }
 

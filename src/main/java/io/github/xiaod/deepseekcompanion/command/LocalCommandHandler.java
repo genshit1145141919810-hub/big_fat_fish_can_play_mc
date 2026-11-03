@@ -90,6 +90,7 @@ public final class LocalCommandHandler {
             case "portal" -> portal(arg);
             case "place" -> place(arg);
             case "see" -> see();
+            case "events" -> events();
             case "chat" -> say("§7" + io.github.xiaod.deepseekcompanion.chat.ChatCoordinator.lastSeen());
             case "debug" -> debug(arg);
             default -> help();
@@ -551,6 +552,18 @@ public final class LocalCommandHandler {
         boolean ok = io.github.xiaod.deepseekcompanion.bot.PortalController.start(mc, arg);
         say(ok ? "§7去走门了（走到方块里等传送）"
                 : "§c附近 24 格里没找到" + (arg.isBlank() ? "传送门" : " " + arg + " 门"));
+    }
+
+    /** 看看最近发生了什么。 */
+    private static void events() {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        if (mc.player == null) {
+            say("§c还没进世界");
+            return;
+        }
+        for (String line : io.github.xiaod.deepseekcompanion.bot.EventLog.recent(12).split("\n")) {
+            say("§7" + line);
+        }
     }
 
     /** 感知层自检：一次打印模型会看到的那些感知信息。 */

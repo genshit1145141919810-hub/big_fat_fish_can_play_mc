@@ -152,6 +152,7 @@ public final class ActionExecutor {
             case PATH -> Perception.path(mc);
             case DROPS -> Perception.drops(mc);
             case PLAYERS -> Perception.players(mc);
+            case EVENTS -> EventLog.recent(10);
             default -> "";
         };
     }
