@@ -119,6 +119,7 @@ public final class LocalCommandHandler {
         say("§7.xd model <名字> §f- 换模型");
         say("§7.xd base <url> §f- 换 OpenAI 兼容接口地址");
         say("§7.xd header <名字> §f- 换密钥请求头（默认 Authorization）");
+        say("§7.xd fair on|off §f- 公平模式：只挖视线内的方块");
         say("§7.xd owner <你的ID> §f- 指定要跟的人");
         say("§7.xd status §f- 状态");
         say("§7.xd commands §f- 模型被允许的全部动作（白名单）");
@@ -726,6 +727,7 @@ public final class LocalCommandHandler {
     }
 
     private static void say(String message) {
+        message = io.github.xiaod.deepseekcompanion.chat.Lang.t(message);
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player != null) {
             mc.player.sendMessage(Text.literal("[小D] " + message), false);

@@ -324,6 +324,7 @@ public final class BotBrain {
 
     /** 只发给自己客户端看的提示：规划/状态这类不该别人看见的东西全走这里。 */
     public static void tell(String message) {
+        message = io.github.xiaod.deepseekcompanion.chat.Lang.t(message);
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player != null && message != null && !message.isBlank()) {
             mc.player.sendMessage(net.minecraft.text.Text.literal("[小D] " + message), false);
@@ -340,6 +341,7 @@ public final class BotBrain {
     }
 
     public static void say(String text) {
+        text = io.github.xiaod.deepseekcompanion.chat.Lang.t(text);
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.getNetworkHandler() == null || text == null || text.isBlank()) {
             return;
