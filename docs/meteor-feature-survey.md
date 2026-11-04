@@ -113,7 +113,26 @@ Meteor 的 `KillAura` 有一整套"怎么把一刀打得又准又不浪费"的�
 
 ---
 
-## 七、建议的落地顺序
+## 七、已经落地的部分（截至 0.4.0-alpha.2）
+
+| Meteor 模块 | 我们的实现 | 说明 |
+| --- | --- | --- |
+| `AutoEat` | `BotActions.eat` + 战斗里的进食优先 | 饿了/残血就吃，**吃优先于打** |
+| `AutoTool` | `AutoTool.equipFor` | 挖什么方块换什么工具（镐/斧/锹/剪刀），主背包里的会先换手上 |
+| `AutoReplenish` | `AutoTool.replenish` | 快捷栏空了从背包补货，两秒看一次 |
+| `AutoArmor` | `ArmorController` | 自动穿最好的护甲，按保护/耐久打分 |
+| `AutoMend` | 用经验修补（脚本里会优先留经验） | 简化版 |
+| `Nametags`（部分） | 聊天/状态里报告血量与距离 | 没做渲染层，先保证信息可用 |
+| `Waypoints` | `Memory` 的 home/stash + `.xd waypoints` | 地点簿 |
+| `StashFinder`（只用自己的） | `Memory.noteStash` + `.xd store/take` | 只记自己的箱子，不做扫别人基地 |
+| `BetterChat` | 五级聊天解析 + `.xd chat` 自检 | 服务器改格式也能读 |
+| `Trail` / `Breadcrumbs` | 事件日志（`.xd events`） | 不画线，但"它去过哪、干了啥"有记录 |
+| `DiscordPresence` | 未做 | 半小时的活，等发布稳定再说 |
+| `Notebot` | 未做 | 见第八节的移植路线 |
+
+刻意没有落地：`KillAura` 系列、任何移动作弊、透视渲染、`Spam`/`OffhandCrash` 这类攻击性模块 —— 理由见第五节。
+
+## 八、建议的落地顺序
 
 1. **AutoEat / AutoTool / AutoReplenish / AutoMend**（生存自理，收益最大）
 2. **Nametags + Waypoints**（陪伴感与地点记忆，和现有 `Memory` 合并）

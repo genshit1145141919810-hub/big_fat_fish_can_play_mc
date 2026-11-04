@@ -45,51 +45,14 @@ public final class MiningController {
 
     /** 手上得拿着镐：拿错东西挖，方块会碎但什么都不掉。 */
     public static void equipPickaxe(MinecraftClient mc) {
-        if (mc.player == null) {
-            return;
+        AutoTool.equipPickaxe(mc);
+    }
+
+    /** 挖这个方块就用最合适的工具：镐挖石头、斧砍木头、锹铲土。 */
+    private static void equipForBlock(MinecraftClient mc, BlockPos pos) {
+        if (mc.world != null) {
+            AutoTool.equipFor(mc, mc.world.getBlockState(pos));
         }
-        var inventory = mc.player.getInventory();
-        int best = -1;
-        int bestTier = -1;
-        for (int slot = 0; slot < 36; slot++) {
-            var stack = inventory.getStack(slot);
-            if (stack.isEmpty()) {
-                continue;
-            }
-            String id = Registries.ITEM.getId(stack.getItem()).getPath();
-            if (!id.endsWith("_pickaxe")) {
-                continue;
-            }
-            int tier = id.startsWith("netherite") ? 5 : id.startsWith("diamond") ? 4
-                    : id.startsWith("iron") ? 3 : id.startsWith("stone") ? 2
-                    : id.startsWith("golden") ? 1 : 0;
-            if (tier > bestTier) {
-                bestTier = tier;
-                best = slot;
-            }
-        }
-        if (best < 0) {
-            return;
-        }
-        if (best < 9) {
-            inventory.setSelectedSlot(best);
-            return;
-        }
-        // 在主背包里：换到当前手上的格子
-        int hotbar = inventory.getSelectedSlot();
-        int handlerSlot = -1;
-        var handler = mc.player.currentScreenHandler;
-        for (var slot : handler.slots) {
-            if (slot.inventory == inventory && slot.getIndex() == best) {
-                handlerSlot = slot.id;
-                break;
-            }
-        }
-        if (handlerSlot < 0 || mc.interactionManager == null) {
-            return;
-        }
-        mc.interactionManager.clickSlot(handler.syncId, handlerSlot, hotbar,
-                net.minecraft.screen.slot.SlotActionType.SWAP, mc.player);
     }
 
     /** 最近一次挖矿任务真正挖掉了几块：用来区分"没挖到"和"挖了没捡到"。 */
@@ -109,6 +72,7 @@ public final class MiningController {
         if (!acquire(mc)) {
             return false;
         }
+        equipForBlock(mc, target);
         DeepseekCompanionClient.LOGGER.info("[XiaoD] mining started: {} at {}", id == null ? "any log" : id, target);
         return true;
     }

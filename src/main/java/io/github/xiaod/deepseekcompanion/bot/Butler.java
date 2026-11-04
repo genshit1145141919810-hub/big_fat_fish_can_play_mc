@@ -57,6 +57,7 @@ public final class Butler {
         if (AcquireTask.isMining()) {
             return; // 挖矿是 Baritone 的一个进程，插一句 goto 就会把它打断
         }
+        AutoTool.replenish(mc); // 快捷栏空了就补，别等用光才想起
         pickup(mc, p, now);
         unstuck(mc, p, now);
         dropJunk(mc, p, now);

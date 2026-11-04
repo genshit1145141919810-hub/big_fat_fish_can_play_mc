@@ -73,6 +73,10 @@ public final class CompanionConfig {
     public float critMinDistance = 2.4f;
     /** Swap to the hotbar stack with the highest attack-damage modifier. */
     public boolean switchWeapon = true;
+    /** 挖不同方块自动换最合适的工具（镐/斧/锹/剪刀）。 */
+    public boolean autoTool = true;
+    /** 快捷栏用空了自动从背包补回来。 */
+    public boolean autoReplenish = true;
     /**
      * 公平模式：只挖"人眼看得见"的方块。
      * <p>关掉时，寻路和选矿都会用 Baritone / 区块数据，等于知道墙后面有什么；
