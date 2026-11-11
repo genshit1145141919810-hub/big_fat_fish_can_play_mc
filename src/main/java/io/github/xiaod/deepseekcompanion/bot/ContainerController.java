@@ -73,6 +73,8 @@ public final class ContainerController {
     private static boolean treeMode;
     /** 这一次要连着合几份：规划里说"合三次木板"就得真合三次。 */
     private static int pendingCrafts = 1;
+    /** 成品格取不空的重试次数（背包满时别死循环）。 */
+    private static int resultRetries;
 
     private ContainerController() {
     }
@@ -91,6 +93,7 @@ public final class ContainerController {
             return false;
         }
         pendingCrafts = Math.max(1, crafts);
+        resultRetries = 0;
         if (pendingCrafts > 1) {
             // 规划已经算好了要合几份、材料也备齐了：直接照数量合，别再让合成树重算一遍
             treeMode = false;
@@ -402,6 +405,21 @@ public final class ContainerController {
                         phase = Phase.WAIT;
                         until = now + 12_000L;
                         return;
+                    }
+                    // 成品格还留着东西（背包满 / 点击没生效）：再点一次，别直接关界面
+                    // 只对合成界面做这个检查：熔炼界面的 0 号格是"输入"，不是成品
+                    if (mode == Mode.CRAFT || mode == Mode.CRAFT_INV) {
+                        resultRetries++;
+                        if (resultRetries > 6) {
+                            fail("背包满了，成品拿不出来");
+                            return;
+                        }
+                        if (p.currentScreenHandler.slots.size() > 0
+                                && !p.currentScreenHandler.slots.get(0).getStack().isEmpty()) {
+                            mc.interactionManager.clickSlot(p.currentScreenHandler.syncId, 0, 0,
+                                    SlotActionType.QUICK_MOVE, p);
+                            return;
+                        }
                     }
                     if (pendingCrafts > 1) {
                         // 还要合下一份：界面留着，重新摆一遍材料

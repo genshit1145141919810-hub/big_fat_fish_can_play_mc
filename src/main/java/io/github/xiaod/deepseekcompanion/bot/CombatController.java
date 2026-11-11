@@ -63,6 +63,8 @@ public final class CombatController {
     private static final float AIM_STEP_DEG = 22.0f;
     /** 换武器前手上是第几格：打完还回去（学 KillAura 的 swapBack）。 */
     private static int preCombatSlot = -1;
+    /** 换武器时武器原本在背包里的哪一格（用于换回去）。 */
+    private static int preCombatSource = -1;
     /** 上次打日志时的武器格，避免每秒刷同一行。 */
     private static int lastWeaponLogSlot = -1;
 
@@ -270,15 +272,39 @@ public final class CombatController {
         return d;
     }
 
-    /** 打完了把手上的武器换回原来那格（只在真的为打架换过时才换回去）。 */
+    /**
+     * 打完了把武器换回原来那格。
+     * 如果是为了打架从背包换进来的，就再 SWAP 一次把原来手上那把换回去（
+     * 只改选中格是不够的——物品已经被换到背包里了）。
+     */
     private static void restoreWeapon(MinecraftClient mc) {
-        if (preCombatSlot < 0 || mc.player == null) {
+        if (mc.player == null) {
             return;
         }
-        int slot = preCombatSlot;
+        int hotbar = preCombatSlot;
+        int source = preCombatSource;
         preCombatSlot = -1;
-        if (slot != mc.player.getInventory().getSelectedSlot()) {
-            mc.player.getInventory().setSelectedSlot(slot);
+        preCombatSource = -1;
+        if (hotbar < 0) {
+            return;
+        }
+        if (source >= 0 && mc.interactionManager != null) {
+            int handlerSlot = -1;
+            for (var slot : mc.player.currentScreenHandler.slots) {
+                if (slot.inventory == mc.player.getInventory() && slot.getIndex() == source) {
+                    handlerSlot = slot.id;
+                    break;
+                }
+            }
+            if (handlerSlot >= 0) {
+                mc.interactionManager.clickSlot(mc.player.currentScreenHandler.syncId, handlerSlot, hotbar,
+                        net.minecraft.screen.slot.SlotActionType.SWAP, mc.player);
+                mc.player.getInventory().setSelectedSlot(hotbar);
+                return;
+            }
+        }
+        if (hotbar != mc.player.getInventory().getSelectedSlot()) {
+            mc.player.getInventory().setSelectedSlot(hotbar);
         }
     }
 
@@ -465,6 +491,7 @@ public final class CombatController {
             if (preCombatSlot < 0) {
                 preCombatSlot = hotbar;
             }
+            preCombatSource = best;
             mc.interactionManager.clickSlot(handler.syncId, handlerSlot, hotbar,
                     net.minecraft.screen.slot.SlotActionType.SWAP, mc.player);
             DeepseekCompanionClient.LOGGER.info("[XiaoD] weapon: 从背包换入 slot {} (dps {})", best, String.format("%.2f", bestDps));

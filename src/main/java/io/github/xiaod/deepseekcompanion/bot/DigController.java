@@ -23,6 +23,8 @@ public final class DigController {
     private static long lastProgressAt;
     private static int levelY;
     private static int lastLoggedLevel;
+    /** 遇到大落差/液体时挪窝的次数，避免来回横跳。 */
+    private static int relocations;
 
     private DigController() {
     }
@@ -46,6 +48,7 @@ public final class DigController {
         levelY = mc.player.getBlockY();
         lastLoggedLevel = levelY;
         lastProgressAt = System.currentTimeMillis();
+        relocations = 0;
         DeepseekCompanionClient.LOGGER.info("[XiaoD] dig: 往下挖 {} 格（从 y={}）", remaining, levelY);
         return true;
     }
@@ -73,6 +76,7 @@ public final class DigController {
             lastProgressAt = System.currentTimeMillis();
             if (y != lastLoggedLevel) {
                 lastLoggedLevel = y;
+            relocations = 0;
                 DeepseekCompanionClient.LOGGER.info("[XiaoD] dig: 到 y={}，还差 {} 格", y, Math.max(0, remaining));
             }
             if (remaining <= 0) {
@@ -97,12 +101,49 @@ public final class DigController {
             drop++;
         }
         if (state.isOf(Blocks.BEDROCK) || !state.getFluidState().isEmpty() || drop > 3) {
+            // 下面挖不动或者是个深坑：别硬挖，往旁边挪几格重新找竖井
+            if (relocations < 5 && BaritoneBridge.available() && relocate(mc)) {
+                relocations++;
+                DeepseekCompanionClient.LOGGER.info("[XiaoD] dig: 这里下面是 {} / 落差 {} 格，换个地方挖",
+                        state.getBlock(), drop);
+                return;
+            }
             DeepseekCompanionClient.LOGGER.info("[XiaoD] dig: 下面不适合继续（{} / 落差 {} 格），停",
                     state.getBlock(), drop);
             cancel(mc);
             return;
         }
         mineBlock(mc, below);
+    }
+
+    /** 找一个下面够结实、能继续往下挖的落脚点，走过去。 */
+    private static boolean relocate(MinecraftClient mc) {
+        BlockPos origin = mc.player.getBlockPos();
+        for (int r = 3; r <= 10; r++) {
+            for (BlockPos pos : BlockPos.iterateOutwards(origin, r, 2, r)) {
+                if (pos.equals(origin) || !standable(mc, pos)) {
+                    continue;
+                }
+                BlockPos below = pos.down();
+                BlockState state = mc.world.getBlockState(below);
+                if (state.isOf(Blocks.BEDROCK) || !state.getFluidState().isEmpty() || state.isAir()) {
+                    continue;
+                }
+                if (mc.world.getBlockState(below.down()).isAir()) {
+                    continue; // 再下面也是空腔，还是别去
+                }
+                BaritoneBridge.gotoPos(pos.getX(), pos.getY(), pos.getZ());
+                DeepseekCompanionClient.LOGGER.info("[XiaoD] dig: 挪到 {} 继续往下", pos);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean standable(MinecraftClient mc, BlockPos pos) {
+        return !mc.world.getBlockState(pos.down()).getCollisionShape(mc.world, pos.down()).isEmpty()
+                && mc.world.getBlockState(pos).getCollisionShape(mc.world, pos).isEmpty()
+                && mc.world.getBlockState(pos.up()).getCollisionShape(mc.world, pos.up()).isEmpty();
     }
 
     private static void mineBlock(MinecraftClient mc, BlockPos pos) {
