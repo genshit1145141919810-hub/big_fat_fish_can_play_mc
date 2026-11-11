@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.4.0-alpha.3 — English UI, Meteor-style self-care, polish (1.21.11)
+
+First build with an English interface and the "look after yourself" modules borrowed from
+Meteor Client (the safe ones). Everything below was verified in a real 1.21.11 Fabric client.
+
+### Added
+- **Localisation**: the game language decides the interface language. Chinese is the source
+  language; `assets/big_fat_fish_can_play_mc/lang/en_us.json` carries 181 strings plus 14
+  template rules, applied at the three chat output funnels. Other languages fall back to
+  English, then to Chinese. `tools/check-lang.cjs` reports untranslated strings and typos.
+- **AutoTool**: mining picks the fastest tool for the block (pickaxe/axe/shovel/shears) across
+  the whole inventory, instead of always holding a pickaxe.
+- **AutoReplenish**: an emptied hotbar slot is refilled from the main inventory (2 s throttle,
+  one slot at a time).
+- **Fair play mode** (`.xd fair on`): targets must be inside the line of sight (raycast) and
+  Baritone's `#mine` is bypassed, so ores are not picked from chunk data. Off by default,
+  because that is how it can actually mine.
+- `.xd fair`, `.xd base`, `.xd header` and a help entry for each.
+
+### Changed
+- Weapon swap-back after combat now really swaps the weapon back with the item that was in the
+  hand, instead of only changing the selected slot.
+- Descending for deep ores relocates to a nearby solid spot when the shaft hits bedrock, fluid
+  or a large drop, instead of giving up immediately.
+
+### Fixed
+- Crafting verifies the result slot is actually empty after taking the output (and retries),
+  guarded so the furnace input slot is never touched.
+- English/Chinese wording for the new settings, plus documentation for the localisation
+  workflow (`docs/LOCALIZATION.md`).
+
 ## 0.4.0-alpha.2 — acquisition rework, real survival loop (1.21.11)
 
 This is the first alpha that survives **from nothing**: chop → planks → table → tools → mine →
