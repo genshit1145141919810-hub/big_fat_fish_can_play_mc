@@ -186,6 +186,11 @@ public final class AcquireTask {
     private static long verifyUntil;
     private static String statusText = "";
 
+    /** 任务树：当前路线内已完成的步骤数、每步最后结果、失败历史。 */
+    private static int doneSteps;
+    private static final Map<String, String> STEP_RESULT = new LinkedHashMap<>();
+    private static final java.util.List<String> HISTORY = new ArrayList<>();
+
     private AcquireTask() {
     }
 
@@ -207,6 +212,55 @@ public final class AcquireTask {
         chain.remove(target);
         chain.removeIf(item -> count(MinecraftClient.getInstance(), item) > 0);
         return chain;
+    }
+
+    private static void noteHistory(String line) {
+        HISTORY.add(line);
+        while (HISTORY.size() > 12) {
+            HISTORY.remove(0);
+        }
+    }
+
+    /**
+     * 任务树的只读快照，给 {@code .xd plan tree} 用。
+     * 不改变任何状态，只把当前阶段/路线/每步状态摊平成几行文字。
+     */
+    public static List<String> treeLines() {
+        List<String> lines = new ArrayList<>();
+        int route = Math.max(1, candidateIndex + 1);
+        int routes = Math.max(1, CANDIDATES.size());
+        int stage = Math.max(1, route);
+        int stages = STAGES.size() + stage;
+        lines.add("目标 " + (finalGoal.isEmpty() ? "?" : finalGoal)
+                + "  阶段 " + stage + "/" + stages
+                + "  路线 " + route + "/" + routes
+                + "  重算 " + replans + "/" + MAX_REPLANS);
+        if (!running) {
+            lines.add("（当前没有正在跑的获取任务）");
+        } else {
+            int index = 0;
+            for (Step step : PLAN) {
+                String mark = index < doneSteps ? "✔" : index == doneSteps ? "▶" : "·";
+                String extra = STEP_RESULT.getOrDefault(step.toString(), "");
+                String suffix = extra.isEmpty() || "✔".equals(extra) ? "" : "  " + extra;
+                lines.add("  [" + mark + "] " + step + suffix);
+                index++;
+                if (index > 24) {
+                    lines.add("  …（还有 " + (PLAN.size() - index) + " 步）");
+                    break;
+                }
+            }
+            if (!STAGES.isEmpty()) {
+                lines.add("  后续里程碑: " + STAGES);
+            }
+        }
+        if (!HISTORY.isEmpty()) {
+            lines.add("最近:");
+            for (int i = Math.max(0, HISTORY.size() - 4); i < HISTORY.size(); i++) {
+                lines.add("  · " + HISTORY.get(i));
+            }
+        }
+        return lines;
     }
 
     public static boolean isBusy() {
@@ -277,6 +331,9 @@ public final class AcquireTask {
         TRACE.clear();
         PATH.clear();
         STAGES.clear();
+        HISTORY.clear();
+        STEP_RESULT.clear();
+        doneSteps = 0;
         finalGoal = id;
         STAGES.addAll(stagesFor(id));
         STAGES.add(id);
@@ -785,6 +842,7 @@ public final class AcquireTask {
         DeepseekCompanionClient.LOGGER.info("[XiaoD] acquire: 重新测算 {}（{}，第 {} 次）",
                 goalItem, reason, replans);
         EventLog.note("重新测算", goalItem + "：" + reason);
+        noteHistory("重新测算：" + reason);
         CANDIDATES.clear();
         buildCandidates(goalItem, stageNeed());
         if (CANDIDATES.isEmpty()) {
@@ -805,6 +863,7 @@ public final class AcquireTask {
             PLAN.addAll(CANDIDATES.get(candidateIndex));
         }
         stepStarted = false;
+        doneSteps = 0;
         selfMine = false;
         placeAttempts = 0;
         mineRetries = 0;
@@ -814,6 +873,10 @@ public final class AcquireTask {
     }
 
     private static void nextCandidate(MinecraftClient mc, String reason) {
+        noteHistory("换路线：" + reason);
+        if (!PLAN.isEmpty()) {
+            STEP_RESULT.put(PLAN.peek().toString(), "✘ " + reason);
+        }
         NOTES.add("路线 " + (candidateIndex + 1) + " 失败：" + reason);
         candidateIndex++;
         if (candidateIndex >= CANDIDATES.size()) {
@@ -910,6 +973,8 @@ public final class AcquireTask {
                 return;
             }
             PLAN.poll();
+            doneSteps++;
+            STEP_RESULT.put(step.toString(), "✔");
             stepStarted = false;
             stepSince = now;
             verifyUntil = 0L;

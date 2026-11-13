@@ -143,6 +143,7 @@ public final class LocalCommandHandler {
         say("§7.xd auto on|off §f- 让它自己决定下一步");
         say("§7.xd plan <目标> §f- 强制走多步计划（平时只有单步做不到/失败才会自动升级）");
         say("§7.xd plan status|stop §f- 看计划进度 / 停掉计划");
+        say("§7.xd plan tree §f- 打印任务树（每步状态、失败原因）");
         say("§7.xd portal [nether|end] §f- 去走最近的下界门/末地门");
         say("§7.xd chat §f- 看最近一条聊天是怎么被解析的（服务器改了聊天格式先跑这个）");
         say("§7.xd debug on|off §f- 聊天调试日志 + 记住判定结果");
@@ -579,13 +580,20 @@ public final class LocalCommandHandler {
     /** agent 层：强制规划 / 看进度 / 停掉。 */
     private static void plan(String arg) {
         if (arg.isBlank()) {
-            say("§7用法: .xd plan <目标>  |  .xd plan status  |  .xd plan stop");
+            say("§7用法: .xd plan <目标>  |  .xd plan status  |  .xd plan tree  |  .xd plan stop");
             say("§8" + io.github.xiaod.deepseekcompanion.bot.PlanRunner.status());
             return;
         }
         if (arg.equalsIgnoreCase("stop")) {
             io.github.xiaod.deepseekcompanion.bot.PlanRunner.stop("命令停止");
             say("§7计划停了");
+            return;
+        }
+        if (arg.equalsIgnoreCase("tree")) {
+            for (String line : io.github.xiaod.deepseekcompanion.bot.AcquireTask.treeLines()) {
+                say("§7" + line);
+            }
+            say("§8" + io.github.xiaod.deepseekcompanion.bot.PlanRunner.status());
             return;
         }
         if (arg.equalsIgnoreCase("status")) {

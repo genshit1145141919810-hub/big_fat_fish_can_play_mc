@@ -36,7 +36,6 @@
     "§7.xd say <话> §f- 让它说话": "§7.xd say <text> §f- make it speak",
     "§7.xd fair on|off §f- 公平模式：只挖视线内的方块": "§7.xd fair on|off §f- fair play: only mine blocks in line of sight",
     "§8聊天里喊「XiaoD 你好」也会回你": "§8Mentioning \"XiaoD\" in chat also works",
-
     "还没进世界": "Not in a world yet",
     "§c还没进世界": "§cNot in a world yet",
     "还没进游戏": "Not in the game yet",
@@ -183,22 +182,70 @@
     "16 格内没有敌对生物": "No hostile mobs within 16 blocks",
     "开挖，你先自己玩会儿。": "Digging now, play on your own for a bit.",
     "存不了（附近没箱子？）": "Cannot store (no chest nearby?)",
-    "取不了（附近没箱子？）": "Cannot take (no chest nearby?)"
+    "取不了（附近没箱子？）": "Cannot take (no chest nearby?)",
+    "§7.xd plan tree §f- 打印任务树（每步状态、失败原因）": "§7.xd plan tree §f- print the task tree (per-step status, failures)",
+    "（当前没有正在跑的获取任务）": "(no acquisition running)"
   },
   "rules": [
-    { "zh": "弄完了：%s（%s 个）", "en": "Done: %s (×%s)" },
-    { "zh": "弄不到 %s：%s", "en": "Cannot get %s: %s" },
-    { "zh": "身上没有 %s", "en": "No %s in the inventory" },
-    { "zh": "不知道 %s 从哪来", "en": "No idea where %s comes from" },
-    { "zh": "目标：%s", "en": "Goal: %s" },
-    { "zh": "合成 %s（%s 次）", "en": "Crafting %s (×%s)" },
-    { "zh": "获取 %s 现在 %s 个", "en": "Acquired %s, now %s" },
-    { "zh": "挖 %s 级阶梯到 y=%s，再挖 %s", "en": "Digging %s levels to y=%s, then mining %s" },
-    { "zh": "§7本账号: §f%s", "en": "§7Account: §f%s" },
-    { "zh": "§7自动决策: §f%s", "en": "§7Autonomous: §f%s" },
-    { "zh": "§7聊天调试: §f%s", "en": "§7Chat debug: §f%s" },
-    { "zh": "§7服务器协议: §f%s", "en": "§7Server protocol: §f%s" },
-    { "zh": "§7公平模式: §f%s", "en": "§7Fair play: §f%s" },
-    { "zh": "§b当前群系：§f%s", "en": "§bBiome: §f%s" }
+    {
+      "zh": "弄完了：%s（%s 个）",
+      "en": "Done: %s (×%s)"
+    },
+    {
+      "zh": "弄不到 %s：%s",
+      "en": "Cannot get %s: %s"
+    },
+    {
+      "zh": "身上没有 %s",
+      "en": "No %s in the inventory"
+    },
+    {
+      "zh": "不知道 %s 从哪来",
+      "en": "No idea where %s comes from"
+    },
+    {
+      "zh": "目标：%s",
+      "en": "Goal: %s"
+    },
+    {
+      "zh": "合成 %s（%s 次）",
+      "en": "Crafting %s (×%s)"
+    },
+    {
+      "zh": "获取 %s 现在 %s 个",
+      "en": "Acquired %s, now %s"
+    },
+    {
+      "zh": "挖 %s 级阶梯到 y=%s，再挖 %s",
+      "en": "Digging %s levels to y=%s, then mining %s"
+    },
+    {
+      "zh": "§7本账号: §f%s",
+      "en": "§7Account: §f%s"
+    },
+    {
+      "zh": "§7自动决策: §f%s",
+      "en": "§7Autonomous: §f%s"
+    },
+    {
+      "zh": "§7聊天调试: §f%s",
+      "en": "§7Chat debug: §f%s"
+    },
+    {
+      "zh": "§7服务器协议: §f%s",
+      "en": "§7Server protocol: §f%s"
+    },
+    {
+      "zh": "§7公平模式: §f%s",
+      "en": "§7Fair play: §f%s"
+    },
+    {
+      "zh": "§b当前群系：§f%s",
+      "en": "§bBiome: §f%s"
+    },
+    {
+      "zh": "后续里程碑: %s",
+      "en": "Next milestones: %s"
+    }
   ]
 }
