@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.5.0-alpha.1 — reliable hands, honest planning (1.21.11)
+
+The build where the hands stopped fighting the brain: crafting, armour swapping and
+exploration are verified by the *result*, not by what the client merely thinks happened.
+Everything below was verified in a real 1.21.11 Fabric client, from a `/clear` world.
+
+### Fixed
+- **Crafting could never finish outside a crafting table.** The armour controller drained
+  whatever sat on the cursor every tick — including the stack the crafting machine had just
+  picked up — so every inventory-grid (2×2) craft ended in "no output". The armoured hand and
+  the crafting hand now take turns: no controller touches the cursor while a container action
+  is running.
+- **The armour swap could not replace an occupied slot.** Vanilla quick-move only fills an
+  *empty* armour slot, so upgrades looped forever with the piece still in the bag. Equipping
+  now does pickup → click the armour slot → put the old piece back, one verified action per
+  tick with a 3 s deadline.
+- **Mining through walls.** `goto` used a fixed Y, so exploration dug into hillsides. Baritone
+  now gets a plain XZ goal and walks node by node, checking for trees at every node.
+
+### Changed
+- **Mining is Baritone's `#mine` again** for wood as well as ore. The hand-rolled digger is
+  only used when Baritone is missing or `.xd fair on` is active. Wood still respects the
+  "don't dig logs below Y" limit: if there is no tree above the floor nearby, the bot looks
+  for a forest instead of tunnelling to a mineshaft.
+- **Material bookkeeping matches vanilla tags.** Logs are counted per wood type
+  (`#minecraft:oak_logs` does not accept cherry logs), planks stay interchangeable, and the
+  smelting fuel is picked from the wood the bot actually owns. This removed the
+  "the plan says the materials are there, the crafting grid disagrees" family of failures.
+- **Crafting click execution went back to the proven model**: build the click sequence once,
+  fire it one click at a time, then verify the outcome by counting the item (two rebuild
+  retries). Per-step state checks were removed because the client's cursor mirror is not
+  authoritative without an open screen. A strict ingredient pre-check still runs before the
+  table is opened and reports the missing token of the recipe that is closest to craftable.
+- **Single-action failure is fed back to the model**: the controller's own diagnostic
+  ("no iron ore nearby") is handed back with the failed action and the LLM gets one chance to
+  change approach before the system escalates to a multi-step plan. `idle`/`stop` no longer
+  count as failures.
+- **Prompt corrections**: `arg` semantics are now documented per action (they used to claim
+  only `mine` takes an argument, which broke `goto`/`craft`/`hunt`), plans may not assume
+  items the inventory does not have, and mining/chop/goto plan steps get a 3× timeout so an
+  ongoing dig is not killed mid-way.
+- **Exploration** walks ~48-block nodes, turns 135° after 8 nodes on the same heading, and
+  replans against the new location; a node with trees stops the walk and chops immediately.
+- **Butler** only collects drops within 5 blocks (and within 4 blocks vertically) and does not
+  re-target while already walking, instead of marching across the map for a stray item.
+- The game snapshot now shows what is in flight ("正在做 plan/acquire …") so the model knows
+  the bot is busy.
+
+### Added
+- `.xd think <text>` — feed a sentence to the model as if the owner said it. Single-player has
+  no second player, so this is how the whole "model decides → action runs" path is tested.
+- LLM requests use `response_format: json_object` with an automatic fallback when the endpoint
+  rejects it, and every call logs its token usage.
+- Armour scoring is `armour + 1.5 × toughness + 0.5 × protection`; one upgrade per scan, and
+  the resulting set is logged after each swap.
+
 ## 0.4.0-alpha.3 — English UI, Meteor-style self-care, polish (1.21.11)
 
 First build with an English interface and the "look after yourself" modules borrowed from

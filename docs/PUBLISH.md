@@ -6,11 +6,11 @@
 
 | 项目 | 状态 |
 |---|---|
-| jar 构建 | ✅ `build/libs/big-fat-fish-can-play-mc-0.4.0-alpha.2.jar` |
+| jar 构建 | ✅ `build/libs/big-fat-fish-can-play-mc-0.5.0-alpha.1.jar` |
 | 发布前检查 | ✅ `tools/release-check.ps1` 输出 `CHECK OK - ready to publish` |
-| 发布包 | ✅ `dist/0.4.0-alpha.2/`（jar + sources + README + LICENSE + CHANGELOG + checksums + 商店文案） |
+| 发布包 | ✅ `dist/0.5.0-alpha.1/`（jar + sources + README + LICENSE + CHANGELOG + checksums + 商店文案） |
 | 上传脚本 | ✅ `tools/publish.ps1`（支持 `-DryRun`） |
-| Modrinth 项目页 | ❌ 需要你在网站上创建（API 不允许建项目） |
+| Modrinth 项目页 | ⏳ 已提交建项，等官方审核通过后再用下面的命令传版本 |
 | CurseForge 项目页 | ❌ 同上 |
 | 平台 Token | ❌ 需要你提供 |
 
@@ -36,7 +36,7 @@
 ```powershell
 $env:MODRINTH_TOKEN = 'mrp_xxxxxxxx'
 $env:MODRINTH_PROJECT = 'big-fat-fish-can-play-mc'
-powershell -File tools\publish.ps1 -Version 0.4.0-alpha.2 -SkipGitHub -SkipCurseForge -Proxy ''
+powershell -File tools\publish.ps1 -Version 0.5.0-alpha.1 -SkipGitHub -SkipCurseForge -Proxy ''
 ```
 
 （有代理就填 `-Proxy http://127.0.0.1:7890`。）
@@ -57,7 +57,7 @@ powershell -File tools\publish.ps1 -Version 0.4.0-alpha.2 -SkipGitHub -SkipCurse
 ```powershell
 $env:CURSEFORGE_TOKEN = 'xxxxxxxx-xxxx-xxxx'
 $env:CURSEFORGE_PROJECT = '1234567'
-powershell -File tools\publish.ps1 -Version 0.4.0-alpha.2 -SkipGitHub -SkipModrinth -Proxy ''
+powershell -File tools\publish.ps1 -Version 0.5.0-alpha.1 -SkipGitHub -SkipModrinth -Proxy ''
 ```
 
 > 注意：CurseForge 的公开 API 只能"上传文件"，**不能创建项目**，所以上面这一步必须手工。
@@ -67,7 +67,7 @@ powershell -File tools\publish.ps1 -Version 0.4.0-alpha.2 -SkipGitHub -SkipModri
 ## 3. 上传前自检（可选，但建议）
 
 ```powershell
-powershell -File tools\publish.ps1 -Version 0.4.0-alpha.2 -DryRun
+powershell -File tools\publish.ps1 -Version 0.5.0-alpha.1 -DryRun
 ```
 
 它会打印：jar 路径/大小/SHA1、请求地址、将发送的 JSON、文件字段名，不会真的联网。
@@ -75,11 +75,11 @@ powershell -File tools\publish.ps1 -Version 0.4.0-alpha.2 -DryRun
 ## 4. 上传之后
 
 - 在 Modrinth 项目页确认：Loader `Fabric`、Game version `1.21.11`、Environment `Client`、
-  版本类型 `alpha`、文件名为 `big-fat-fish-can-play-mc-0.4.0-alpha.2.jar`。
+  版本类型 `alpha`、文件名为 `big-fat-fish-can-play-mc-0.5.0-alpha.1.jar`。
 - CurseForge 上确认版本类型为 `Alpha`、`Game Version: 1.21.11`、`Mod Loader: Fabric`。
 - 两个平台都建议把 GitHub Release 链接放到 "Links" 里。
 
 ## 5. 本次发布内容摘要（可复制到 Release Notes）
 
-见 `CHANGELOG.md` 的 `0.4.0-alpha.2` 一节：掉落表驱动取材、需求图批量规划、里程碑分阶段、
+见 `CHANGELOG.md` 的 `0.5.0-alpha.1` 一节：合成/换甲的"按结果验收"、挖矿回到 Baritone、LLM 失败反馈闭环、
 失败重算、深部下挖、工作台/熔炉回收、OpenAI 兼容接口、借鉴 KillAura 的出手纪律、进食优先。

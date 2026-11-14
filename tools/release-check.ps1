@@ -2,12 +2,29 @@
 # Checks: version string, required resources, icon, mixin configs, no Baritone bundled,
 # and that the jar actually carries the class files the mixins touch.
 param(
-    [string]$Jar = 'D:\Chat\deepseek-companion\build\libs\big-fat-fish-can-play-mc-0.3.0-alpha.1.jar'
+    [string]$Jar = ''
 )
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $problems = @()
 $notes = @()
+
+# 不指定就按 gradle.properties 里的版本号去挑 jar，
+# 别再去捡 build/libs 里最老的那个（之前误报过 0.3.0）。
+if (-not $Jar) {
+    $root = Split-Path -Parent $PSScriptRoot
+    $props = Join-Path $root 'gradle.properties'
+    $version = ''
+    if (Test-Path $props) {
+        Select-String -Path $props -Pattern '^mod_version=' | ForEach-Object {
+            $version = ($_.Line -split '=', 2)[1].Trim()
+        }
+    }
+    $candidates = Get-ChildItem (Join-Path $root 'build\libs') -Filter '*.jar' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notlike '*-sources*' -and ($version -eq '' -or $_.Name -like "*-$version.jar") } |
+        Sort-Object LastWriteTime -Descending
+    if ($candidates) { $Jar = $candidates[0].FullName }
+}
 
 if (-not (Test-Path $Jar)) { Write-Host "jar not found: $Jar"; exit 1 }
 Write-Host "jar: $Jar ($((Get-Item $Jar).Length) bytes)"
