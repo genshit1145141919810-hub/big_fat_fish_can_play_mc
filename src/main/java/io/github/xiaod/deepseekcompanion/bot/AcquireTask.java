@@ -37,7 +37,7 @@ public final class AcquireTask {
     private static final int MAX_REPLANS = 3;
     private static final int PLACE_ATTEMPTS = 3;
     private static final long STEP_TIMEOUT_MS = 60_000L;
-    private static final long TOTAL_TIMEOUT_MS = 600_000L;
+    private static final long TOTAL_TIMEOUT_MS = 900_000L;
     /** 补挖时的冗余比例：少捡到一个就多挖一半，别正好卡在数量上。 */
     private static final double REDUNDANCY = 0.5;
     /** 一开始就多挖的比例：人挖木头也不会掐着数挖。 */
@@ -163,13 +163,23 @@ public final class AcquireTask {
     private static int verifications;
     private static int mineRetries;
     private static int mineDryStreak;
+    private static int explores;
     private static int replans;
     /** 同一份配料的其他候选（挖不到就换），按"离得近"排好。 */
     private static final Map<String, List<String>> MINE_ALTS = new LinkedHashMap<>();
+    /**
+     * 这个阶段里已经试过"材料不够"的合成：重排时别再走同一条死路，
+     * 换一条（比如改成去挖原木）而不是原地重试三次。
+     */
+    private static final Set<String> NO_CRAFT = new LinkedHashSet<>();
+    /** 每样东西"料不够"栽了几次：第一次当少挖了（补挖），连着两次才换来源。 */
+    private static final Map<String, Integer> CRAFT_FAILS = new LinkedHashMap<>();
+    /** 这一带确定没有的树种（oak/spruce/…）：重排时跳过，换一种树再来。 */
+    private static final Set<String> NO_WOOD = new LinkedHashSet<>();
+    /** 走远一点之后要按新位置的树重新排一遍计划（不然永远在找同一种树）。 */
+    private static boolean replanAfterExplore;
     /** 规划过程的追踪，诊断用。 */
     private static final List<String> TRACE = new ArrayList<>();
-    /** 这一步改用自己的挖矿（Baritone 找不到路时）。 */
-    private static boolean selfMine;
     /** 深挖那一步：交给 Baritone 赶路到目标高度。 */
     private static int digTargetY;
     /** 当前这一步是交给 Baritone 挖的。 */
@@ -182,7 +192,9 @@ public final class AcquireTask {
     private static final long MINE_TIMEOUT_MS = 300_000L;
     /** 一次获取里挖矿最多花多久（挖到地下矿层要时间）。 */
     private static final long MINE_STALL_MS = 90_000L;
-    private static final int MAX_MINE_RETRIES = 3;
+    private static final int MAX_MINE_RETRIES = 6;
+    /** 找不到树时最多"走远点"几次（每次走完按新位置重排）。 */
+    private static final int MAX_EXPLORES = 8;
     private static long verifyUntil;
     private static String statusText = "";
 
@@ -351,7 +363,12 @@ public final class AcquireTask {
         goalItem = stage;
         candidateIndex = 0;
         replans = 0;
+        explores = 0;
         mineDryStreak = 0;
+        NO_CRAFT.clear();
+        CRAFT_FAILS.clear();
+        NO_WOOD.clear();
+        replanAfterExplore = false;
         CANDIDATES.clear();
         NOTES.clear();
         PATH.clear();
@@ -479,11 +496,16 @@ public final class AcquireTask {
         try {
             List<CraftRecipes.Recipe> recipes = usefulRecipes(item);
             // 挖一下就有、又不是合成品（钻石、煤、粗铁…）：直接挖，别绕去烧
-            if (recipes.isEmpty()) {
+            if (recipes.isEmpty() && !NO_CRAFT.contains(item)) {
                 String direct = blockFor(item);
                 if (direct != null && structureMine(item, direct, depth)) {
                     return true;
                 }
+            }
+            if (NO_CRAFT.contains(item)) {
+                // 这个阶段合成已经证明料不够：别再照同一个配方重排，也别去"挖木板"，
+                // 只留烧/打这种真正的另一条来源
+                recipes = new ArrayList<>();
             }
             // 得靠烧出来的（铁锭、木炭、玻璃…）：先挖矿再烧，而不是把压缩块拆开
             if (smeltFromMinable(item) && structureSmelt(item, depth, need)) {
@@ -499,6 +521,13 @@ public final class AcquireTask {
                 }
             }
             String block = blockFor(item);
+            if (NO_CRAFT.contains(item)) {
+                // 合成这条路已经证明料不够了；木板、木棍这种东西又没有天然可挖的，
+                // 硬去"挖木板"只会白折腾，直接说这条来源不成，让调用方换材料/换路线
+                NOTES.add(item + " 合成料不够，也没有别的来源");
+                TRACE.add(item + "(深度" + depth + ")：合成料不够");
+                return false;
+            }
             if (block != null && structureMine(item, block, depth)) {
                 return true;
             }
@@ -615,10 +644,19 @@ public final class AcquireTask {
         return score;
     }
 
-    /** 燃料优先用木头（手上最常见），实在没有才去挖煤。 */
+    /** 燃料优先用木头（手上最常见），实在没有才去挖煤。挑燃料也要按树种来，别去合橡木木板。 */
     private static String pickFuel(int depth, int need) {
         int n = Math.max(1, need);
-        for (String fuel : List.of("oak_planks", "spruce_planks", "coal", "charcoal", "oak_log")) {
+        List<String> fuels = new ArrayList<>();
+        String wood = woodType(MinecraftClient.getInstance());
+        if (wood != null) {
+            fuels.add(wood + "_planks");
+            fuels.add(wood + "_log");
+        }
+        fuels.add("coal");
+        fuels.add("charcoal");
+        fuels.addAll(List.of("oak_planks", "spruce_planks", "birch_planks", "oak_log"));
+        for (String fuel : new LinkedHashSet<>(fuels)) {
             if (count(MinecraftClient.getInstance(), fuel) >= n || structure(fuel, depth + 1, n, null)) {
                 return fuel;
             }
@@ -858,6 +896,23 @@ public final class AcquireTask {
         return goalItem.equals(finalGoal) ? Math.max(1, goalCount) : 1;
     }
 
+    /**
+     * 不计入"重排次数"的重算：走远之后按新位置重排，探索还能继续
+     * （{@link #replan} 有上限，探索要是也算进去就只够走三次）。
+     */
+    private static void rebuildPlan(MinecraftClient mc, String why) {
+        DeepseekCompanionClient.LOGGER.info("[XiaoD] acquire: {}（按新位置重排）", why);
+        EventLog.note("按新位置重排", goalItem + "：" + why);
+        CANDIDATES.clear();
+        buildCandidates(goalItem, stageNeed());
+        if (CANDIDATES.isEmpty()) {
+            nextCandidate(mc, why);
+            return;
+        }
+        candidateIndex = 0;
+        loadCandidate();
+    }
+
     private static void loadCandidate() {
         PLAN.clear();
         if (candidateIndex < CANDIDATES.size()) {
@@ -865,7 +920,6 @@ public final class AcquireTask {
         }
         stepStarted = false;
         doneSteps = 0;
-        selfMine = false;
         placeAttempts = 0;
         mineRetries = 0;
         mineDryStreak = 0;
@@ -937,6 +991,12 @@ public final class AcquireTask {
                 PLAN.poll();
                 stepStarted = false;
                 stepSince = now;
+                if (replanAfterExplore) {
+                    // 换了个地方：按这边的树/矿重新排，不然还是在找原来那种树
+                    replanAfterExplore = false;
+                    NO_WOOD.clear();
+                    rebuildPlan(mc, step.item());
+                }
                 return;
             }
             if (busy) {
@@ -975,6 +1035,18 @@ public final class AcquireTask {
                 stepStarted = false;
                 verifications++;
                 if (step.op() == Op.CRAFT || step.op() == Op.SMELT) {
+                    boolean stuck = step.op() == Op.CRAFT && missingMaterial();
+                    if (stuck) {
+                        int fails = CRAFT_FAILS.merge(step.item(), 1, Integer::sum);
+                        if (fails >= 3) {
+                            // 补挖两次还是不够：这条路线到此为止，换下一条
+                            nextCandidate(mc, step + " " + whyNoOutput(step));
+                            return;
+                        }
+                        if (fails >= 2) {
+                            NO_CRAFT.add(step.item());
+                        }
+                    }
                     replan(mc, step + " " + whyNoOutput(step));
                 } else {
                     nextCandidate(mc, step + " " + whyNoOutput(step));
@@ -1048,7 +1120,39 @@ public final class AcquireTask {
             stepStarted = false;
             if (step.op() == Op.CRAFT || step.op() == Op.SMELT) {
                 // 材料半路不够了：按现在的背包重新算一遍还缺什么，而不是整条链作废
+                if (step.op() == Op.CRAFT && missingMaterial()) {
+                    int fails = CRAFT_FAILS.merge(step.item(), 1, Integer::sum);
+                    if (fails >= 3) {
+                        nextCandidate(mc, step + " " + ContainerController.lastFail);
+                        return;
+                    }
+                    // 第一次、第二次都当作"少挖了几个"：重排会补一步挖（比如熔炉差石头）
+                    if (fails >= 2) {
+                        NO_CRAFT.add(step.item());
+                    }
+                    replan(mc, step + " " + ContainerController.lastFail);
+                    return;
+                }
                 replan(mc, step + " 差材料");
+                return;
+            }
+            if (step.op() == Op.MINE && isWood(step.item())) {
+                // 附近没有可挖的天然原木：走远点找林子（走完按新位置的树重排，别死找同一种）
+                if (explores < MAX_EXPLORES) {
+                    explores++;
+                    DeepseekCompanionClient.LOGGER.info(
+                            "[XiaoD] acquire: 附近没有树，走远点找（第 {}/{} 次）", explores, MAX_EXPLORES);
+                    PLAN.addFirst(new Step(Op.MINE, step.item(), step.arg(), Math.max(1, step.count())));
+                    PLAN.addFirst(new Step(Op.EXPLORE, step.item(), "", 0));
+                    replanAfterExplore = true;
+                    return;
+                }
+                String wood = logWood(step.item());
+                if (wood != null && NO_WOOD.add(wood)) {
+                    replan(mc, "这一带没 " + wood + " 树，换一种树种");
+                    return;
+                }
+                nextCandidate(mc, step + " 附近找不到 " + step.arg() + " 了");
                 return;
             }
             if (step.op() == Op.MINE && digDownThenRetry(step)) {
@@ -1122,14 +1226,8 @@ public final class AcquireTask {
     }
 
     private static boolean startMine(MinecraftClient mc, Step step) {
-        if (isWood(step.item())) {
-            // 木头：自己挖，才能遵守"低于 minWoodY 不挖"（Baritone 会去矿井里找）
-            String woodBlock = mineBlockFor(step.item());
-            return MiningController.start(mc, woodBlock == null ? step.arg() : woodBlock,
-                    true, Math.max(1, step.count()));
-        }
         if (io.github.xiaod.deepseekcompanion.config.CompanionConfig.get().fairPlay) {
-            // 公平模式：不用 Baritone 的 #mine（它会用区块数据挑目标），改自己挖看得见的
+            // 公平模式（可选）：不用 Baritone 的 #mine（它会用区块数据挑目标），改自己挖看得见的
             String visibleBlock = mineBlockFor(step.item());
             return MiningController.start(mc, visibleBlock == null ? step.arg() : visibleBlock,
                     false, Math.max(1, step.count()));
@@ -1141,7 +1239,16 @@ public final class AcquireTask {
         if (block == null || block.isEmpty()) {
             block = step.arg();
         }
-        if (!BaritoneBridge.available() || selfMine) {
+        if (isWood(step.item())) {
+            // 木头交给 Baritone 挖（快、会寻路），但先确认这一带地面上确实有树：
+            // 没有就不让它往地底/废弃矿井里钻着找原木
+            int minY = io.github.xiaod.deepseekcompanion.config.CompanionConfig.get().minWoodY;
+            if (MiningController.nearestDistanceAbove(mc, block, 48, minY) < 0) {
+                DeepseekCompanionClient.LOGGER.info("[XiaoD] acquire: {} 层以上附近没 {}，先去找林子", minY, block);
+                return false;
+            }
+        }
+        if (!BaritoneBridge.available()) {
             return MiningController.start(mc, block, false, Math.max(1, step.count()));
         }
         BaritoneBridge.setSetting("allowBreak", "true");
@@ -1165,10 +1272,10 @@ public final class AcquireTask {
         if (!BaritoneBridge.available()) {
             return false;
         }
-        int dx = (int) (Math.random() * 2 * 48) - 48;
-        int dz = (int) (Math.random() * 2 * 48) - 48;
-        if (Math.abs(dx) < 24 && Math.abs(dz) < 24) {
-            dx = dx >= 0 ? 32 : -32;
+        int dx = (int) (Math.random() * 2 * 140) - 140;
+        int dz = (int) (Math.random() * 2 * 140) - 140;
+        if (Math.abs(dx) < 60 && Math.abs(dz) < 60) {
+            dx = dx >= 0 ? 90 : -90;
         }
         int x = mc.player.getBlockX() + dx;
         int z = mc.player.getBlockZ() + dz;
@@ -1329,24 +1436,6 @@ public final class AcquireTask {
         if (now - lastMineProgress > MINE_STALL_MS) {
             BaritoneBridge.stop();
             baritoneMine = false;
-            boolean reachable = false;
-            for (String variant : ItemFamilies.variants(step.item())) {
-                for (String block : BlockDrops.blocksFor(variant)) {
-                    if (MiningController.nearestDistance(mc, block, 24) >= 0) {
-                        reachable = true;
-                        break;
-                    }
-                }
-                if (reachable) {
-                    break;
-                }
-            }
-            if (!selfMine && reachable) {
-                // 只有附近真有一块够得着的，才改自己挖；地底下的交给 Baritone 挖下去
-                selfMine = true;
-                DeepseekCompanionClient.LOGGER.info("[XiaoD] acquire: baritone 走不过去，改用自己挖 {}", step.arg());
-                return;
-            }
             PLAN.poll();
             stepStarted = false;
             int gained = Math.max(0, have - base);
@@ -1363,16 +1452,23 @@ public final class AcquireTask {
 
     /** 失败原因说清楚：是没挖到，还是挖了没捡到。 */
     private static String whyNoOutput(Step step) {
+        String fail = ContainerController.lastFail;
         if (step.op() == Op.MINE) {
             return MiningController.minedCount() > 0 ? "挖了但东西没进背包" : "挖不动";
         }
         if (step.op() == Op.CRAFT) {
-            return "合成没出东西";
+            return fail != null && !fail.isEmpty() ? fail : "合成没出东西";
         }
         if (step.op() == Op.SMELT) {
-            return "烧完没拿到";
+            return fail != null && !fail.isEmpty() ? fail : "烧完没拿到";
         }
         return "没有产出";
+    }
+
+    /** 上一次容器动作是不是"料不够"（而不是台子/界面那种问题）。 */
+    private static boolean missingMaterial() {
+        String fail = ContainerController.lastFail;
+        return fail != null && (fail.contains("材料不够") || fail.contains("没有材料") || fail.contains("料不够"));
     }
 
     private static void finish(MinecraftClient mc) {
@@ -1499,15 +1595,20 @@ public final class AcquireTask {
     /** 背包里没木头时，看附近最近的是哪种树：这样伐木和合木板是同一个树种。 */
     private static String nearestWoodType() {
         MinecraftClient mc = MinecraftClient.getInstance();
+        String best = null;
+        double bestDist = Double.MAX_VALUE;
         for (String block : BlockDrops.blocksFor("oak_log")) {
-            if (MiningController.nearestDistance(mc, block, 32) >= 0) {
+            // 按"最近的"挑，而不是按表里的顺序：林子边上可能好几种树都够得着
+            double dist = MiningController.nearestDistance(mc, block, 48);
+            if (dist >= 0 && dist < bestDist) {
                 int cut = block.indexOf("_log");
                 if (cut > 0) {
-                    return block.substring(0, cut);
+                    bestDist = dist;
+                    best = block.substring(0, cut);
                 }
             }
         }
-        return null;
+        return best;
     }
 
     private static String woodType(MinecraftClient mc) {
@@ -1566,6 +1667,13 @@ public final class AcquireTask {
                     continue;
                 }
                 String id = Registries.ITEM.getId(item).getPath();
+                String itemWood = logWood(id);
+                if (itemWood == null && id.endsWith("_planks")) {
+                    itemWood = id.substring(0, id.length() - "_planks".length());
+                }
+                if (itemWood != null && NO_WOOD.contains(itemWood)) {
+                    continue; // 这一带确定没这种树了，别再选它
+                }
                 if (fallback == null) {
                     fallback = id;
                 }
@@ -1581,6 +1689,15 @@ public final class AcquireTask {
                 String wood = woodType(MinecraftClient.getInstance());
                 if (wood != null && id.startsWith(wood + "_")) {
                     score += 400; // 手上的木头优先：不然会去合橡木木板却只有云杉
+                }
+                if (id.endsWith("_planks")) {
+                    // 木板只能由同种原木做：手上有这种原木（或者林子里就有这种树）才优先
+                    String type = id.substring(0, id.length() - "_planks".length());
+                    if (countAny(MinecraftClient.getInstance(), type + "_log") > 0) {
+                        score += 300;
+                    } else if (MiningController.anyNearby(MinecraftClient.getInstance(), type + "_log", 32)) {
+                        score += 200;
+                    }
                 }
                 int pref = COMMON_PREF.indexOf(id);
                 if (pref >= 0) {
@@ -1613,9 +1730,38 @@ public final class AcquireTask {
     public static int countAny(MinecraftClient mc, String item) {
         int total = 0;
         for (String variant : ItemFamilies.variants(item)) {
+            if (!interchangeable(item, variant)) {
+                continue;
+            }
             total += count(mc, variant);
         }
         return total;
+    }
+
+    /**
+     * 变种表是"大致能顶替"的粗表，但木头分树种：橡木木板只能用橡木原木（#minecraft:oak_logs）
+     * 来做，手上只有樱花木也不能算数——否则会算出"料够了"，合成时却对不上配方。
+     * 木板之间还是可以互换（原版配方取 #minecraft:planks），所以只收紧"原木这一层"。
+     */
+    private static boolean interchangeable(String wanted, String variant) {
+        String wood = logWood(wanted);
+        if (wood == null) {
+            return true;
+        }
+        return wood.equals(logWood(variant));
+    }
+
+    /** "oak_log"/"cherry_wood"/"bamboo_stem" → "oak"/"cherry"/"bamboo"；不是原木返回 null。 */
+    private static String logWood(String id) {
+        if (id == null) {
+            return null;
+        }
+        for (String suffix : List.of("_log", "_stem", "_hyphae", "_wood")) {
+            if (id.endsWith(suffix)) {
+                return id.substring(0, id.length() - suffix.length());
+            }
+        }
+        return null;
     }
 
     public static int count(MinecraftClient mc, String id) {

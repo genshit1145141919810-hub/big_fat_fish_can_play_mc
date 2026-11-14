@@ -26,6 +26,7 @@ import net.minecraft.util.math.Vec3d;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -75,6 +76,8 @@ public final class ContainerController {
     private static int pendingCrafts = 1;
     /** 成品格取不空的重试次数（背包满时别死循环）。 */
     private static int resultRetries;
+    /** 最近一次失败的原文（给规划那边判断"是料不够还是别的问题"）。 */
+    public static String lastFail = "";
 
     /** 合成点击的状态机：每一步都先验证上一步真的生效，再走下一步。 */
     private enum CraftAct { CLEAR, PICKUP, PLACE, PUTBACK, TAKE, CHECK }
@@ -102,6 +105,7 @@ public final class ContainerController {
         if (mc.player == null) {
             return false;
         }
+        lastFail = "";
         pendingCrafts = Math.max(1, crafts);
         resultRetries = 0;
         if (pendingCrafts > 1) {
@@ -165,6 +169,12 @@ public final class ContainerController {
             BotBrain.say("我不知道 " + itemId + " 怎么合（原版配方表里没有）");
             return false;
         }
+        String shortOf = missingIngredient(mc, itemId, Math.max(1, pendingCrafts));
+        if (shortOf != null) {
+            // 料其实对不上就别开台子了：直接说缺什么，规划那边会改成去弄这个材料
+            fail("材料不够：" + itemId + " 缺 " + shortOf);
+            return false;
+        }
         BlockPos table = findBlock(mc, Blocks.CRAFTING_TABLE, 6);
         if (table != null) {
             blockPos = table;
@@ -184,6 +194,51 @@ public final class ContainerController {
         mode = Mode.CRAFT_INV;
         phase = Phase.FIND;
         return true;
+    }
+
+    /**
+     * 开界面前先按配方严格对一遍背包：标签材料按原版 tag 认（{@code #minecraft:oak_logs}
+     * 不认樱花原木）。之前的教训是料其实不够、照样开了台子，最后卡在合成格前失败，
+     * 规划那边还以为料齐了，重排三次走的都是同一条死路。
+     *
+     * @return null = 有配方够料；否则返回缺的那种材料 token
+     */
+    private static String missingIngredient(MinecraftClient mc, String itemId, int crafts) {
+        if (mc.player == null) {
+            return "背包读不出来";
+        }
+        PlayerInventory inventory = mc.player.getInventory();
+        String firstMissing = null;
+        for (var recipe : io.github.xiaod.deepseekcompanion.integrations.CraftRecipes.find(itemId)) {
+            Map<String, Integer> need = new LinkedHashMap<>();
+            for (String cell : recipe.cells()) {
+                if (cell != null) {
+                    need.merge(cell, 1, Integer::sum);
+                }
+            }
+            boolean ok = true;
+            for (var entry : need.entrySet()) {
+                int want = entry.getValue() * crafts;
+                int has = 0;
+                for (int slot = 0; slot < 36; slot++) {
+                    ItemStack stack = inventory.getStack(slot);
+                    if (!stack.isEmpty() && io.github.xiaod.deepseekcompanion.integrations.CraftRecipes
+                            .matches(entry.getKey(), stack)) {
+                        has += stack.getCount();
+                    }
+                }
+                if (has < want) {
+                    if (firstMissing == null) {
+                        firstMissing = entry.getKey();
+                    }
+                    ok = false;
+                }
+            }
+            if (ok) {
+                return null;
+            }
+        }
+        return firstMissing == null ? "配方对不上" : firstMissing;
     }
 
     /** 有没有宽高都 ≤2 的配方（背包 2x2 装得下）。 */
@@ -513,6 +568,7 @@ public final class ContainerController {
 
     private static void fail(String why) {
         DeepseekCompanionClient.LOGGER.warn("[XiaoD] container action failed: {}", why);
+        lastFail = why;
         BotBrain.tell(why); // 诊断信息只给自己看，不往公屏发
         QUEUE.clear();
         mode = Mode.NONE;

@@ -28,6 +28,13 @@ import java.util.Set;
 public final class Butler {
     private static final long PICKUP_COOLDOWN_MS = 3000L;
     private static final long STUCK_WINDOW_MS = 4000L;
+    /**
+     * 只捡脚边的：远了不追。以前是 6 格范围、能穿墙的方块坐标也去，结果经常为了几个
+     * 掉落物跑半张地图，正经活全耽误了。
+     */
+    private static final double PICKUP_RANGE = 5.0;
+    /** 掉落物在脚下/头顶太远就别去了（多半是掉进洞里）。 */
+    private static final double PICKUP_MAX_DY = 4.0;
     private static final Set<String> JUNK = Set.of(
             "rotten_flesh", "poisonous_potato", "spider_eye", "wheat_seeds", "beetroot_seeds",
             "pumpkin_seeds", "melon_seeds", "flint", "gravel");
@@ -71,13 +78,28 @@ public final class Butler {
         if (now - lastPickup < PICKUP_COOLDOWN_MS) {
             return;
         }
+        if (BaritoneBridge.expectingMovement()) {
+            return; // 已经在赶路了，别每 3 秒重新定一次目标
+        }
+        double range = PICKUP_RANGE * PICKUP_RANGE;
         List<ItemEntity> drops = mc.world.getEntitiesByClass(ItemEntity.class,
-                p.getBoundingBox().expand(6.0), e -> !e.isRemoved() && !e.getStack().isEmpty());
-        if (drops.isEmpty()) {
+                p.getBoundingBox().expand(PICKUP_RANGE), e -> !e.isRemoved() && !e.getStack().isEmpty());
+        ItemEntity nearest = null;
+        double best = Double.MAX_VALUE;
+        for (ItemEntity e : drops) {
+            double d = e.squaredDistanceTo(p);
+            // 只有真的伸手够得着（5 格内、上下不超过 4 格）才去捡
+            if (d > range || Math.abs(e.getY() - p.getY()) > PICKUP_MAX_DY) {
+                continue;
+            }
+            if (d < best) {
+                best = d;
+                nearest = e;
+            }
+        }
+        if (nearest == null) {
             return;
         }
-        drops.sort(Comparator.comparingDouble(e -> e.squaredDistanceTo(p)));
-        ItemEntity nearest = drops.get(0);
         if (nearest.squaredDistanceTo(p) < 2.25) {
             return; // 走过去自然就捡到了
         }
@@ -94,13 +116,24 @@ public final class Butler {
         if (mc.player == null || mc.world == null || AcquireTask.isMining()) {
             return;
         }
+        double range = PICKUP_RANGE * PICKUP_RANGE;
         List<ItemEntity> drops = mc.world.getEntitiesByClass(ItemEntity.class,
-                mc.player.getBoundingBox().expand(12.0), e -> !e.isRemoved() && !e.getStack().isEmpty());
-        if (drops.isEmpty()) {
+                mc.player.getBoundingBox().expand(PICKUP_RANGE), e -> !e.isRemoved() && !e.getStack().isEmpty());
+        ItemEntity nearest = null;
+        double best = Double.MAX_VALUE;
+        for (ItemEntity e : drops) {
+            double d = e.squaredDistanceTo(mc.player);
+            if (d > range || Math.abs(e.getY() - mc.player.getY()) > PICKUP_MAX_DY) {
+                continue;
+            }
+            if (d < best) {
+                best = d;
+                nearest = e;
+            }
+        }
+        if (nearest == null) {
             return;
         }
-        drops.sort(Comparator.comparingDouble(e -> e.squaredDistanceTo(mc.player)));
-        ItemEntity nearest = drops.get(0);
         if (nearest.squaredDistanceTo(mc.player) < 2.25) {
             return;
         }
