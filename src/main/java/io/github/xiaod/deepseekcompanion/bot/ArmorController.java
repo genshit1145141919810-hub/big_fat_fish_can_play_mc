@@ -42,6 +42,8 @@ public final class ArmorController {
     private static int swapArmorSlot = -1;
     private static String swapItem = "";
     private static long swapDeadline;
+    /** 换甲半路放弃时手上可能还挂着旧件：只有这种时候才去清光标。 */
+    private static boolean dirtyHands;
 
     private ArmorController() {
     }
@@ -59,10 +61,20 @@ public final class ArmorController {
             advanceSwap(mc, now);
             return;
         }
-        // 手上还挂着东西（上一次没收拾干净）：先塞回背包
-        if (!p.playerScreenHandler.getCursorStack().isEmpty()) {
-            emptyHands(mc, p);
+        // 别的东西正在动背包/光标时一律不插手：合成就是靠光标抓放材料的，
+        // 这里手一抖把光标上的木头塞进背包，合成那边就永远凑不齐了
+        if (ContainerController.isBusy() || MiningController.isBusy() || PlacementController.isBusy()
+                || DigController.isBusy()) {
             return;
+        }
+        // 只有自己上一次换甲没收拾干净（手上残留）时才清理，别碰别人的东西
+        if (dirtyHands) {
+            if (p.playerScreenHandler.getCursorStack().isEmpty()) {
+                dirtyHands = false;
+            } else {
+                emptyHands(mc, p);
+                return;
+            }
         }
         if (mc.currentScreen != null) {
             return; // 玩家自己开着背包/台子，别抢
@@ -191,6 +203,7 @@ public final class ArmorController {
     }
 
     private static void finish(ClientPlayerEntity p) {
+        dirtyHands = false;
         swapStep = 0;
         swapInvSlot = -1;
         swapArmorSlot = -1;
@@ -203,6 +216,7 @@ public final class ArmorController {
     }
 
     private static void abort() {
+        dirtyHands = true;
         swapStep = 0;
         swapInvSlot = -1;
         swapArmorSlot = -1;

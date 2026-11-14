@@ -23,6 +23,7 @@ public final class BaritoneBridge {
                     + "|follow player [A-Za-z0-9_]{1,16}"
                     + "|follow entity [a-z0-9_]{1,48}"
                     + "|goto -?[0-9]{1,8} -?[0-9]{1,3} -?[0-9]{1,8}"
+                    + "|goto -?[0-9]{1,8} -?[0-9]{1,8}"
                     + "|mine [a-z0-9_]{1,48}"
                     // Baritone 原生设置：只放行"设置名 + 布尔/数值"
                     + "|[a-z]{3,32} (?:true|false|[0-9]{1,3}(?:\\.[0-9]{1,3})?))$");
@@ -101,6 +102,14 @@ public final class BaritoneBridge {
 
     public static boolean gotoPos(int x, int y, int z) {
         return exec("goto " + x + " " + y + " " + z);
+    }
+
+    /**
+     * 只给一个 XZ 坐标，Y 让 Baritone 自己按地形找（Baritone 的 GoalXZ）。
+     * 探索去没去过的地方必须用这个：写死一个 Y 它会为了对齐高度去挖山/挖地。
+     */
+    public static boolean gotoXZ(int x, int z) {
+        return exec("goto " + x + " " + z);
     }
 
     /**

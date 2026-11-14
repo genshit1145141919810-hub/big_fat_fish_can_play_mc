@@ -114,6 +114,13 @@ public final class AutoTool {
         if (!cfg.autoReplenish || mc.player == null || mc.currentScreen != null) {
             return;
         }
+        // 合成/熔炼/放方块的时候别插嘴：它靠光标抓放物品，我们这一下 SWAP 会把东西换走
+        if (ContainerController.isBusy() || PlacementController.isBusy() || DigController.isBusy()) {
+            return;
+        }
+        if (!mc.player.currentScreenHandler.getCursorStack().isEmpty()) {
+            return; // 手上拿着东西呢
+        }
         long now = System.currentTimeMillis();
         if (now - lastReplenish < 2000L) {
             return;

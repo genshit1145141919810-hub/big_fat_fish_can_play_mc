@@ -164,6 +164,8 @@ public final class AcquireTask {
     private static int mineRetries;
     private static int mineDryStreak;
     private static int explores;
+    /** 当前方向已经走了几个探索节点。 */
+    private static int exploreNodes;
     private static int replans;
     /** 同一份配料的其他候选（挖不到就换），按"离得近"排好。 */
     private static final Map<String, List<String>> MINE_ALTS = new LinkedHashMap<>();
@@ -178,6 +180,10 @@ public final class AcquireTask {
     private static final Set<String> NO_WOOD = new LinkedHashSet<>();
     /** 走远一点之后要按新位置的树重新排一遍计划（不然永远在找同一种树）。 */
     private static boolean replanAfterExplore;
+    /** 上一次探索走的方向（0~7，每 45° 一格）：没树时按黄金角转角，别来回压同一条路。 */
+    private static int lastExploreSector = -1;
+    /** 赶路途中多久看一眼树（毫秒）：看到就停下去砍，不用走到终点。 */
+    private static long lastExploreCheck;
     /** 规划过程的追踪，诊断用。 */
     private static final List<String> TRACE = new ArrayList<>();
     /** 深挖那一步：交给 Baritone 赶路到目标高度。 */
@@ -193,8 +199,12 @@ public final class AcquireTask {
     /** 一次获取里挖矿最多花多久（挖到地下矿层要时间）。 */
     private static final long MINE_STALL_MS = 90_000L;
     private static final int MAX_MINE_RETRIES = 6;
-    /** 找不到树时最多"走远点"几次（每次走完按新位置重排）。 */
-    private static final int MAX_EXPLORES = 8;
+    /** 找不到树时最多探索几个节点（每个节点约 48 格，8 个节点换一次方向）。 */
+    private static final int MAX_EXPLORES = 24;
+    /** 探索的一个节点走多远。 */
+    private static final int EXPLORE_NODE_BLOCKS = 48;
+    /** 同一个方向最多连着走几个节点，然后换个方向。 */
+    private static final int EXPLORE_NODES_PER_HEADING = 8;
     private static long verifyUntil;
     private static String statusText = "";
 
@@ -364,6 +374,7 @@ public final class AcquireTask {
         candidateIndex = 0;
         replans = 0;
         explores = 0;
+        exploreNodes = 0;
         mineDryStreak = 0;
         NO_CRAFT.clear();
         CRAFT_FAILS.clear();
@@ -983,6 +994,19 @@ public final class AcquireTask {
                 return;
             }
             if (step.op() == Op.EXPLORE) {
+                // 路上看到树就停下来砍，不用非得走到终点
+                if (now - lastExploreCheck > 1500L) {
+                    lastExploreCheck = now;
+                    if (treesInReach(mc)) {
+                        BaritoneBridge.stop();
+                        PLAN.poll();
+                        stepStarted = false;
+                        stepSince = now;
+                        replanAfterExplore = false;
+                        rebuildPlan(mc, "路上看到树了，就地砍");
+                        return;
+                    }
+                }
                 boolean walking = BaritoneBridge.expectingMovement();
                 if (walking && now - stepSince < 120_000L) {
                     return;
@@ -991,11 +1015,16 @@ public final class AcquireTask {
                 PLAN.poll();
                 stepStarted = false;
                 stepSince = now;
-                if (replanAfterExplore) {
-                    // 换了个地方：按这边的树/矿重新排，不然还是在找原来那种树
-                    replanAfterExplore = false;
-                    NO_WOOD.clear();
-                    rebuildPlan(mc, step.item());
+                // 到了节点：先看这一带有没有树——有就重排成"立刻砍"，没有就接着走下一个节点
+                boolean trees = treesInReach(mc);
+                replanAfterExplore = false;
+                NO_WOOD.clear();
+                if (trees) {
+                    rebuildPlan(mc, "这个节点有树，就地砍");
+                } else if (explores < MAX_EXPLORES) {
+                    rebuildPlan(mc, "这个节点没树，继续走");
+                } else {
+                    rebuildPlan(mc, "这个方向走到头了，换个方向");
                 }
                 return;
             }
@@ -1264,7 +1293,14 @@ public final class AcquireTask {
         return ok;
     }
 
-    /** 走去远处找资源：随机方向 40~64 格，走到位或超时就继续下一步。 */
+    /**
+     * 探索找到木头：一段一段地走，每到一个节点就看一眼有没有树。
+     *
+     * <p>一个节点约 {@value #EXPLORE_NODE_BLOCKS} 格：走到就检查，有树就地砍
+     * （{@link #rebuildPlan} 重排后立刻变成挖树），没有就接着走下一个节点；
+     * 同一个方向连走 {@value #EXPLORE_NODES_PER_HEADING} 个节点还没树，就按黄金角
+     * 转过 135° 换个方向。走的过程中每 1.5 秒也会看一眼，半路看到树就停下。</p>
+     */
     private static boolean startExplore(MinecraftClient mc, Step step) {
         if (mc.player == null) {
             return false;
@@ -1272,17 +1308,36 @@ public final class AcquireTask {
         if (!BaritoneBridge.available()) {
             return false;
         }
-        int dx = (int) (Math.random() * 2 * 140) - 140;
-        int dz = (int) (Math.random() * 2 * 140) - 140;
-        if (Math.abs(dx) < 60 && Math.abs(dz) < 60) {
-            dx = dx >= 0 ? 90 : -90;
+        int px = mc.player.getBlockX();
+        int pz = mc.player.getBlockZ();
+        if (lastExploreSector < 0) {
+            lastExploreSector = java.util.concurrent.ThreadLocalRandom.current().nextInt(8);
+            exploreNodes = 0;
+        } else if (exploreNodes >= EXPLORE_NODES_PER_HEADING) {
+            lastExploreSector = (lastExploreSector + 3) & 7; // 黄金角换方向，别压同一条路
+            exploreNodes = 0;
         }
-        int x = mc.player.getBlockX() + dx;
-        int z = mc.player.getBlockZ() + dz;
-        int y = mc.player.getBlockY();
-        DeepseekCompanionClient.LOGGER.info("[XiaoD] acquire: 走去 ({}, {}, {}) 那边看看有没有 {}",
-                x, y, z, step.item());
-        return BaritoneBridge.gotoPos(x, y, z);
+        double jitter = (Math.random() - 0.5) * Math.toRadians(20);
+        double angle = lastExploreSector * Math.PI / 4.0 + jitter;
+        int x = px + (int) Math.round(Math.sin(angle) * EXPLORE_NODE_BLOCKS);
+        int z = pz + (int) Math.round(Math.cos(angle) * EXPLORE_NODE_BLOCKS);
+        exploreNodes++;
+        explores++;
+        DeepseekCompanionClient.LOGGER.info(
+                "[XiaoD] acquire: 走到第 {} 个节点 ({}, ?, {}) 看看有没有 {}",
+                exploreNodes, x, z, step.item());
+        return BaritoneBridge.gotoXZ(x, z);
+    }
+
+    /** 附近 40 格内有没有能砍的原木（在 minWoodY 之上）。 */
+    private static boolean treesInReach(MinecraftClient mc) {
+        int minY = io.github.xiaod.deepseekcompanion.config.CompanionConfig.get().minWoodY;
+        for (String block : BlockDrops.blocksFor("oak_log")) {
+            if (MiningController.nearestDistanceAbove(mc, block, 40, minY) >= 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 挖阶梯下去到目标高度（Baritone 不肯往垂直井里走，这一件只能自己来）。 */

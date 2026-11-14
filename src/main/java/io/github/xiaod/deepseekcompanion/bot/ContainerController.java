@@ -86,6 +86,13 @@ public final class ContainerController {
     private static final java.util.Deque<CraftStep> CRAFT_Q = new java.util.ArrayDeque<>();
     private static long craftStepDeadline;
     private static int takeRetries;
+    /** 两次合成点击之间至少隔这么久：服务器按顺序处理点击，太快会挤在一起。 */
+    private static final long CRAFT_CLICK_INTERVAL_MS = 60L;
+    private static long nextCraftClickAt;
+    /** 这次合成开始前背包里有几个成品；点击发完后按"变多了没有"验收。 */
+    private static int craftBaseline;
+    private static long craftFinishAt;
+    private static int craftRetries;
     /** 取成品前的短暂等待：客户端结果槽偶尔比最后一次点击晚一两个 tick。 */
     private static long takeWaitUntil;
 
@@ -138,6 +145,8 @@ public final class ContainerController {
         }
         targetItem = step.item();
         pendingCrafts = Math.max(1, step.crafts());
+        craftBaseline = AcquireTask.countAny(mc, step.item());
+        craftRetries = 0;
         BlockPos table = findBlock(mc, Blocks.CRAFTING_TABLE, 6);
         boolean big = false;
         for (var recipe : io.github.xiaod.deepseekcompanion.integrations.CraftRecipes.find(step.item())) {
@@ -175,6 +184,8 @@ public final class ContainerController {
             fail("材料不够：" + itemId + " 缺 " + shortOf);
             return false;
         }
+        craftBaseline = AcquireTask.countAny(mc, itemId);
+        craftRetries = 0;
         BlockPos table = findBlock(mc, Blocks.CRAFTING_TABLE, 6);
         if (table != null) {
             blockPos = table;
@@ -208,7 +219,10 @@ public final class ContainerController {
             return "背包读不出来";
         }
         PlayerInventory inventory = mc.player.getInventory();
-        String firstMissing = null;
+        // 报"最接近能做成的那个配方"缺什么：木棍有木板和竹子两种配方，
+        // 手上没竹子时不该说"缺竹子"，该说真正卡住的那一种
+        String bestMissing = null;
+        int bestMissingCount = Integer.MAX_VALUE;
         for (var recipe : io.github.xiaod.deepseekcompanion.integrations.CraftRecipes.find(itemId)) {
             Map<String, Integer> need = new LinkedHashMap<>();
             for (String cell : recipe.cells()) {
@@ -217,6 +231,7 @@ public final class ContainerController {
                 }
             }
             boolean ok = true;
+            java.util.List<String> missingHere = new ArrayList<>();
             for (var entry : need.entrySet()) {
                 int want = entry.getValue() * crafts;
                 int has = 0;
@@ -228,17 +243,19 @@ public final class ContainerController {
                     }
                 }
                 if (has < want) {
-                    if (firstMissing == null) {
-                        firstMissing = entry.getKey();
-                    }
+                    missingHere.add(entry.getKey());
                     ok = false;
                 }
+            }
+            if (!ok && missingHere.size() < bestMissingCount) {
+                bestMissingCount = missingHere.size();
+                bestMissing = missingHere.get(0);
             }
             if (ok) {
                 return null;
             }
         }
-        return firstMissing == null ? "配方对不上" : firstMissing;
+        return bestMissing == null ? "配方对不上" : bestMissing;
     }
 
     /** 有没有宽高都 ≤2 的配方（背包 2x2 装得下）。 */
@@ -347,9 +364,8 @@ public final class ContainerController {
         switch (phase) {
             case FIND -> {
                 if (mode == Mode.CRAFT_INV) {
-                    // 不打开界面：玩家自己的 PlayerScreenHandler 始终是激活的（syncId 0），
-                    // 直接往里点就行。创造模式下客户端不允许保留 InventoryScreen，
-                    // 之前就是卡在"界面没打开"。
+                    // 不打开界面：玩家自己的 PlayerScreenHandler 一直挂着（syncId 0），
+                    // 旧版就是这么合的，一直很稳。创造模式下客户端还不允许保留 InventoryScreen。
                     if (!(p.currentScreenHandler instanceof net.minecraft.screen.PlayerScreenHandler)) {
                         if (mc.currentScreen != null) {
                             p.closeHandledScreen();
@@ -642,6 +658,8 @@ public final class ContainerController {
                 CRAFT_Q.add(new CraftStep(CraftAct.TAKE, 0, 0, 0));
                 CRAFT_Q.add(new CraftStep(CraftAct.CHECK, 0, 0, 0));
                 craftStepDeadline = 0L;
+                nextCraftClickAt = 0L;
+                craftFinishAt = 0L;
                 io.github.xiaod.deepseekcompanion.DeepseekCompanionClient.LOGGER.info(
                         "[XiaoD] craft recipe {} grid={}x{} cells={} steps={}",
                         recipe.result(), recipe.width(), recipe.height(),
@@ -659,109 +677,115 @@ public final class ContainerController {
         }
     }
 
-    /** 合成状态机：一次只做一个动作，验证通过才继续。 */
+    /**
+     * 合成点击：照排好的顺序一格一格点，不再拿"客户端看到的格子/光标"当下一步的依据。
+     *
+     * <p>这是回到旧版的做法：旧版就是把 buildCraftClicks 排好的点击一次性按顺序发出去
+     * （一个 tick 一下），服务器按顺序处理，很稳。中间那版"逐动作校验"看起来更严谨，
+     * 但玩家自己背包（没开界面）那 2x2 格子时，客户端的光标不会跟着服务器同步，
+     * 于是每步都判成"没生效"、反复点同一个槽，正好把东西抓了又放回去，最后空转超时。</p>
+     *
+     * <p>现在只在最后按"背包里多了没有"验收一次，不成再重摆一遍（最多两次）。</p>
+     */
     private static void tickCraftMachine(MinecraftClient mc, ClientPlayerEntity p, long now) {
         if (mc.interactionManager == null) {
             fail("没有交互管理器");
             return;
         }
         ScreenHandler handler = p.currentScreenHandler;
-        CraftStep step = CRAFT_Q.peek();
-        if (step == null) {
-            if (pendingCrafts > 1) {
-                pendingCrafts--;
-                buildCraftClicks(mc, handler);
-                return;
-            }
-            p.closeHandledScreen();
-            if (treeMode) {
-                mode = Mode.NONE;
-                startTreeStep(mc);
-            } else {
-                mode = Mode.NONE;
-            }
+        if (CRAFT_Q.isEmpty()) {
+            finishCraftQueue(mc, p, handler);
             return;
         }
         if (craftStepDeadline == 0L) {
-            craftStepDeadline = now + 3000L;
+            craftStepDeadline = now + 8000L; // 整队点击给 8 秒
         }
         if (now > craftStepDeadline) {
-            fail("合成动作超时：" + step.act());
+            fail("合成动作超时：点击没发完" + describeCraftState(mc, handler, CRAFT_Q.peek()));
             return;
         }
-        boolean cursorEmpty = handler.getCursorStack().isEmpty();
+        if (now < nextCraftClickAt) {
+            return; // 两次点击之间留出一个 tick 的量，服务器才跟得上
+        }
+        nextCraftClickAt = now + CRAFT_CLICK_INTERVAL_MS;
+        CraftStep step = CRAFT_Q.poll();
         switch (step.act()) {
-            case CLEAR -> {
-                if (handler.slots.get(step.cell()).getStack().isEmpty()) {
-                    doneStep();
-                    return;
-                }
-                clickSlot(mc, p, step.cell(), 0, SlotActionType.QUICK_MOVE);
-            }
-            case PICKUP -> {
-                if (!cursorEmpty) {
-                    doneStep();
-                    return;
-                }
-                clickSlot(mc, p, step.slot(), 0, SlotActionType.PICKUP);
-            }
-            case PLACE -> {
-                if (handler.slots.get(step.cell()).getStack().getCount() >= step.want()) {
-                    doneStep();
-                    return;
-                }
-                if (cursorEmpty) {
-                    fail("手上没有材料了（" + targetItem + "）");
-                    return;
-                }
-                clickSlot(mc, p, step.cell(), 1, SlotActionType.PICKUP);
-            }
-            case PUTBACK -> {
-                if (cursorEmpty) {
-                    doneStep();
-                    return;
-                }
-                clickSlot(mc, p, step.slot(), 0, SlotActionType.PICKUP);
-            }
-            case TAKE -> {
-                var result = handler.slots.get(0).getStack();
-                if (result.isEmpty()) {
-                    if (takeWaitUntil == 0L) {
-                        takeWaitUntil = now + 600L;
-                        return;
-                    }
-                    if (now < takeWaitUntil) {
-                        return;
-                    }
-                    fail("合成格没有成品：" + gridContents(handler));
-                    return;
-                }
-                takeWaitUntil = 0L;
-                String got = Registries.ITEM.getId(result.getItem()).getPath();
-                if (!got.equals(targetItem)) {
-                    fail("合成结果不对（" + got + "，想要 " + targetItem + "）：" + gridContents(handler));
-                    return;
-                }
-                clickSlot(mc, p, 0, 0, SlotActionType.QUICK_MOVE);
-                doneStep();
-            }
-            case CHECK -> {
-                if (handler.slots.get(0).getStack().isEmpty()) {
-                    doneStep();
-                    return;
-                }
-                if (++takeRetries > 8) {
-                    fail("背包满了，成品拿不出来");
-                    return;
+            case CLEAR -> clickSlot(mc, p, step.cell(), 0, SlotActionType.QUICK_MOVE);
+            case PICKUP -> clickSlot(mc, p, step.slot(), 0, SlotActionType.PICKUP);
+            case PLACE -> clickSlot(mc, p, step.cell(), 1, SlotActionType.PICKUP);
+            case PUTBACK -> clickSlot(mc, p, step.slot(), 0, SlotActionType.PICKUP);
+            case TAKE, CHECK -> {
+                if (step.act() == CraftAct.TAKE && handler.slots.get(0).getStack().isEmpty()) {
+                    // 只是提醒：客户端结果格也可能没同步，别拿它当失败依据
+                    DeepseekCompanionClient.LOGGER.warn("[XiaoD] take 前没看到成品，先点一下：{}",
+                            gridContents(handler));
                 }
                 clickSlot(mc, p, 0, 0, SlotActionType.QUICK_MOVE);
             }
         }
     }
 
-    private static void doneStep() {
-        CRAFT_Q.poll();
-        craftStepDeadline = 0L;
+    /** 点击队列发完了：等半秒让服务器同步，然后数背包验收。 */
+    private static void finishCraftQueue(MinecraftClient mc, ClientPlayerEntity p, ScreenHandler handler) {
+        long now = System.currentTimeMillis();
+        if (craftFinishAt == 0L) {
+            craftFinishAt = now + 400L;
+            return;
+        }
+        if (now < craftFinishAt) {
+            return;
+        }
+        craftFinishAt = 0L;
+        int have = AcquireTask.countAny(mc, targetItem);
+        if (have <= craftBaseline) {
+            if (craftRetries < 2) {
+                craftRetries++;
+                DeepseekCompanionClient.LOGGER.info("[XiaoD] craft {} 没增加，重摆一次（第 {}/2 次）",
+                        targetItem, craftRetries);
+                buildCraftClicks(mc, handler);
+                return;
+            }
+            fail("合成没出东西：" + targetItem + " " + gridContents(handler));
+            return;
+        }
+        if (pendingCrafts > 1) {
+            pendingCrafts--;
+            craftBaseline = have;
+            buildCraftClicks(mc, handler);
+            return;
+        }
+        p.closeHandledScreen();
+        if (treeMode) {
+            mode = Mode.NONE;
+            startTreeStep(mc);
+        } else {
+            mode = Mode.NONE;
+        }
+    }
+
+    /** 卡住时把现场抖出来：点的是哪个槽、手上有啥、界面是什么。 */
+    private static String describeCraftState(MinecraftClient mc, ScreenHandler handler,
+                                             io.github.xiaod.deepseekcompanion.bot.ContainerController.CraftStep step) {
+        StringBuilder sb = new StringBuilder("（");
+        sb.append("槽 ").append(step.slot()).append(" 格 ").append(step.cell());
+        if (step.slot() >= 0 && step.slot() < handler.slots.size()) {
+            sb.append(" 槽里=").append(shortId(handler.slots.get(step.slot()).getStack()));
+        }
+        if (step.cell() >= 0 && step.cell() < handler.slots.size()) {
+            sb.append(" 格里=").append(shortId(handler.slots.get(step.cell()).getStack()));
+        }
+        sb.append(" 手上=").append(shortId(handler.getCursorStack()));
+        sb.append(" 界面=").append(handler.getClass().getSimpleName()).append('#').append(handler.syncId);
+        sb.append(" 屏幕=").append(mc.currentScreen == null ? "无" : mc.currentScreen.getClass().getSimpleName());
+        sb.append(" 队列=").append(CRAFT_Q.size());
+        return sb.append('）').toString();
+    }
+
+    private static String shortId(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) {
+            return "空";
+        }
+        return Registries.ITEM.getId(stack.getItem()).getPath() + "x" + stack.getCount();
     }
 
     private static void clickSlot(MinecraftClient mc, ClientPlayerEntity p, int slot, int button,
@@ -771,6 +795,7 @@ public final class ContainerController {
         }
         mc.interactionManager.clickSlot(p.currentScreenHandler.syncId, slot, button, type, p);
     }
+
     /** 把合成格里的东西摊成一句话，摆错时好查。 */
     private static String gridContents(ScreenHandler handler) {
         StringBuilder sb = new StringBuilder();
