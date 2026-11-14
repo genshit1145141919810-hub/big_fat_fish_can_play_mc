@@ -415,9 +415,16 @@ public final class ContainerController {
                 Click click = QUEUE.poll();
                 if (click == null) {
                     if (mode == Mode.SMELT) {
+                        // 一件 10 秒：先看输入槽里放了几件，按件数等足时间
+                        int queued = 1;
+                        if (!p.currentScreenHandler.slots.isEmpty()) {
+                            queued = Math.max(1, p.currentScreenHandler.slots.get(0).getStack().getCount());
+                        }
                         p.closeHandledScreen();
                         phase = Phase.WAIT;
-                        until = now + 12_000L;
+                        until = now + 12_000L + 10_000L * queued;
+                        DeepseekCompanionClient.LOGGER.info("[XiaoD] smelt: 放进 {} 件，等 {} 秒",
+                                queued, 12 + 10 * queued);
                         return;
                     }
                     // 成品格还留着东西（背包满 / 点击没生效）：再点一次，别直接关界面
@@ -846,13 +853,13 @@ public final class ContainerController {
 
     /** 手边有没有能用的工作台：规划阶段据此决定要不要现做一个放下来。 */
     public static boolean tableNearby(MinecraftClient mc) {
-        return findBlock(mc, Blocks.CRAFTING_TABLE, 8) != null;
+        return findBlock(mc, Blocks.CRAFTING_TABLE, 6) != null;
     }
 
     /** 手边有没有能烧东西的熔炉：没有的话规划阶段要先做一个、放一个。 */
     public static boolean furnaceNearby(MinecraftClient mc) {
-        return findBlock(mc, Blocks.FURNACE, 8) != null
-                || findBlock(mc, Blocks.BLAST_FURNACE, 8) != null;
+        return findBlock(mc, Blocks.FURNACE, 6) != null
+                || findBlock(mc, Blocks.BLAST_FURNACE, 6) != null;
     }
 
     private static BlockPos findBlock(MinecraftClient mc, net.minecraft.block.Block block, int radius) {

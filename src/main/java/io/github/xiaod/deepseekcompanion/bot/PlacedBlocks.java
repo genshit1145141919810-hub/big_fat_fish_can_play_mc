@@ -52,6 +52,16 @@ public final class PlacedBlocks {
         return current != null || !QUEUE.isEmpty();
     }
 
+    /** 丢掉全部记录：新任务开始时用，避免上一轮遗留的"回收"把新任务要用的台子挖了。 */
+    public static void clear(MinecraftClient mc) {
+        PLACED.clear();
+        QUEUE.clear();
+        current = null;
+        if (mc != null && mc.interactionManager != null) {
+            mc.interactionManager.cancelBlockBreaking();
+        }
+    }
+
     /** 开始回收：把记下来的位置都排进队列。 */
     public static void recoverAll() {
         for (BlockPos pos : PLACED) {

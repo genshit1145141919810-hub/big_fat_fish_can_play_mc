@@ -330,6 +330,7 @@ public final class AcquireTask {
         NOTES.clear();
         TRACE.clear();
         PATH.clear();
+        PlacedBlocks.clear(mc); // 上一轮遗留的回收动作不能影响这一轮
         STAGES.clear();
         HISTORY.clear();
         STEP_RESULT.clear();
@@ -939,7 +940,14 @@ public final class AcquireTask {
                 return;
             }
             if (busy) {
-                if (now - stepSince > STEP_TIMEOUT_MS) {
+                // 不同动作该等的时间不同：熔炼按件数可能要好几分钟
+                long limit = switch (step.op()) {
+                    case SMELT -> 240_000L;
+                    case CRAFT -> 120_000L;
+                    case MINE -> 300_000L;
+                    default -> STEP_TIMEOUT_MS;
+                };
+                if (now - stepSince > limit) {
                     nextCandidate(mc, step + " 超时");
                 }
                 return;
