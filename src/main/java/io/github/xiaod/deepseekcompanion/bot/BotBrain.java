@@ -30,6 +30,13 @@ public final class BotBrain {
     private static int planCorrections;
     private static boolean escalated;
     private static int queryDepth;
+    /** 一句话之内允许模型因为"没做成"再试一次的次数。 */
+    private static int actionRetries;
+    /** 最近一次 tell 的原文：动作失败时作为失败原因喂回给模型。 */
+    private static String lastTell = "";
+    private static long lastTellAt;
+    /** 这一轮是不是"没人说话、自己判断"：自主决策失败时不再回头找模型重试。 */
+    private static boolean currentAutonomous;
     private static long lastFollowCmd;
     private static long lastOwnerAsk;
     private static long lastEatAt;
@@ -83,6 +90,19 @@ public final class BotBrain {
 
     // ------------------------------------------------------------------ chat
 
+    /**
+     * 本地测试入口（{@code .xd think <话>}）：当成主人说了这句话。
+     * 单人世界里没有第二个玩家，走这条才能试通"模型决策 → 动作"整条链路。
+     */
+    public static void onOwnerSpoke(String text) {
+        if (text == null || text.isBlank()) {
+            tell("要说点什么，比如 .xd think 去挖点煤");
+            return;
+        }
+        String owner = CompanionConfig.get().ownerName;
+        onPlayerSpoke(owner == null || owner.isBlank() ? "主人" : owner, text);
+    }
+
     public static void onPlayerSpoke(String from, String text) {
         CompanionConfig cfg = CompanionConfig.get();
         lastPlayerAt = System.currentTimeMillis();
@@ -91,6 +111,7 @@ public final class BotBrain {
         HISTORY.add(new LlmClient.Msg("user", line));
         trimHistory();
         queryDepth = 0;
+        actionRetries = 0;
         escalated = false;
         planCorrections = 0;
         if (PlanRunner.isPlanning()) {
@@ -114,10 +135,12 @@ public final class BotBrain {
         ask(line, false, null);
     }
 
-    private static void ask(String userText, boolean autonomous, String correctionReason) {        if (pending) {
+    private static void ask(String userText, boolean autonomous, String correctionReason) {
+        if (pending) {
             return;
         }
         pending = true;
+        currentAutonomous = autonomous;
         MinecraftClient mc = MinecraftClient.getInstance();
         String system = Prompts.system(GameSnapshot.build(mc), autonomous);
         List<LlmClient.Msg> history = LlmClient.trim(new ArrayList<>(HISTORY), MAX_HISTORY);
@@ -197,13 +220,33 @@ public final class BotBrain {
         }
         if ((intent.action() != null && !intent.action().isQuery()) || intent.pluginAction() != null) {
             MinecraftClient mc = MinecraftClient.getInstance();
+            BotAction action = intent.action();
             boolean ok = ActionExecutor.execute(mc, intent).ok();
+            String actId = intent.pluginAction() != null ? "plugin:" + intent.pluginAction() : action.id();
             DeepseekCompanionClient.LOGGER.info("[XiaoD] act={} arg={} ok={}",
-                    intent.pluginAction() != null ? "plugin:" + intent.pluginAction() : intent.action().id(),
-                    intent.arg(), ok);
+                    actId, intent.arg(), ok);
             CompanionConfig cfg = CompanionConfig.get();
+            // idle/stop 本来就不"产生结果"，不算失败
+            boolean idleish = intent.pluginAction() == null
+                    && (action == BotAction.IDLE || action == BotAction.STOP);
+            if (ok || idleish) {
+                EventLog.note("动作完成", actId + (intent.arg() == null || intent.arg().isBlank() ? "" : " " + intent.arg()));
+                return;
+            }
+            // 失败原因：控制器一般会先 tell 一句（"附近没有铁"这种），拿来喂回模型
+            String why = System.currentTimeMillis() - lastTellAt < 5000L ? lastTell : "";
+            EventLog.note("动作失败", actId + (intent.arg() == null || intent.arg().isBlank() ? "" : " " + intent.arg())
+                    + (why.isBlank() ? "" : "：" + why));
+            // 先给模型一次"换个做法"的机会（它知道原因、知道动作词表），再考虑升级成多步计划
+            if (cfg.hasKey() && !currentAutonomous && actionRetries < 1 && origin != null && !origin.isBlank()
+                    && !PlanRunner.isPlanning()) {
+                actionRetries++;
+                DeepseekCompanionClient.LOGGER.info("[XiaoD] act failed, asking model for another approach: {}", why);
+                ask(Prompts.retryAfterFailure(origin, actId, intent.arg(), why), false, null);
+                return;
+            }
             // 单步做不成才是 agent 层的入口：失败 → 升级成多步计划（每人一次机会）
-            if (!ok && cfg.planOnFailure && !escalated && !PlanRunner.isPlanning()) {
+            if (cfg.planOnFailure && !escalated && !PlanRunner.isPlanning()) {
                 escalated = true;
                 String goal = lastPayload == null || lastPayload.isBlank()
                         ? (origin == null || origin.isBlank() ? intent.action().description() : origin)
@@ -211,8 +254,9 @@ public final class BotBrain {
                 goal = shorten(goal, 40);
                 DeepseekCompanionClient.LOGGER.info("[XiaoD] single step failed, escalating to a plan: {}", goal);
                 requestPlan("完成这件事：" + goal,
-                        "你刚才只做单步「" + intent.action().id() + "」，没成。玩家原话：" + goal
-                                + "。现在拆成多步计划。");
+                        "你刚才只做单步「" + intent.action().id() + "」，没成"
+                                + (why.isBlank() ? "" : "（" + why + "）")
+                                + "。玩家原话：" + goal + "。现在拆成多步计划。");
             }
         }
     }
@@ -330,6 +374,11 @@ public final class BotBrain {
             mc.player.sendMessage(net.minecraft.text.Text.literal("[小D] " + message), false);
         }
         DeepseekCompanionClient.LOGGER.info("[XiaoD] local: {}", message);
+        // 控制器失败时都是先 tell 一句原因：记下来，动作失败时好告诉模型到底卡在哪
+        if (message != null && !message.isBlank()) {
+            lastTell = message.strip();
+            lastTellAt = System.currentTimeMillis();
+        }
     }
 
     private static String shorten(String text, int max) {

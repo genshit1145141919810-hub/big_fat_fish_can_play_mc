@@ -155,8 +155,13 @@ public final class PlanRunner {
             return;
         }
         int timeoutSeconds = Math.max(15, CompanionConfig.get().planStepTimeoutSeconds);
-        if (now - stepStartedAt > timeoutSeconds * 1000L && !FleeController.isFleeing()) {
-            fail(mc, "第 " + (index + 1) + " 步「" + step + "」" + timeoutSeconds + " 秒没完成");
+        // 挖矿/砍树/赶路本来就慢：按 3 倍宽限，别 90 秒就把还在干活的步骤判死
+        long limitMs = switch (step.action()) {
+            case MINE, CHOP, GOTO -> timeoutSeconds * 3000L;
+            default -> timeoutSeconds * 1000L;
+        };
+        if (now - stepStartedAt > limitMs && !FleeController.isFleeing()) {
+            fail(mc, "第 " + (index + 1) + " 步「" + step + "」" + (limitMs / 1000L) + " 秒没完成");
         }
     }
 

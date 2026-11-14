@@ -53,6 +53,8 @@ public final class LocalCommandHandler {
             case "header" -> setKeyHeader(arg);
             case "owner" -> setOwner(arg);
             case "say" -> BotBrain.say(arg);
+            // 单人测试用：把这句话当成主人说的，走一遍"模型决策 → 动作"的完整链路
+            case "think" -> io.github.xiaod.deepseekcompanion.bot.BotBrain.onOwnerSpoke(arg);
             case "follow" -> follow();
             case "come" -> say(BaritoneBridge.come() ? "过去找你" : "动不了（Baritone 没装？）");
             case "stop" -> {

@@ -34,6 +34,8 @@ public final class LlmClient {
         t.setDaemon(true);
         return t;
     });
+    /** 服务端不认 response_format 就置真，之后不再发，省一次 400 往返。 */
+    private static boolean jsonModeTried;
 
     public record Msg(String role, String content) {
     }
@@ -62,6 +64,12 @@ public final class LlmClient {
                 ? "max_tokens" : cfg.maxTokensParam.trim();
         body.addProperty(tokenParam, cfg.maxTokens);
         body.addProperty("stream", false);
+        // 只输出 JSON：让接口层兜住格式，模型瞎聊的概率低很多；不支持的服务端会在下面自动去掉
+        if (!jsonModeTried) {
+            JsonObject format = new JsonObject();
+            format.addProperty("type", "json_object");
+            body.add("response_format", format);
+        }
 
         JsonArray messages = new JsonArray();
         messages.add(msg("system", system));
@@ -73,12 +81,21 @@ public final class LlmClient {
         messages.add(msg("user", userText));
         body.add("messages", messages);
 
+        long started = System.currentTimeMillis();
         HttpResponse<String> response = send(cfg, GSON.toJson(body));
         // 新模型只认 max_completion_tokens：400 时自动换一次参数名
         if (response.statusCode() == 400 && response.body().contains("max_completion_tokens")
                 && !"max_completion_tokens".equals(tokenParam)) {
             body.remove("max_tokens");
             body.addProperty("max_completion_tokens", cfg.maxTokens);
+            response = send(cfg, GSON.toJson(body));
+        }
+        // 服务端不认 response_format：记下来，去掉它重试一次，之后就不再发
+        if (response.statusCode() == 400 && body.has("response_format")
+                && response.body().contains("response_format")) {
+            jsonModeTried = true;
+            body.remove("response_format");
+            DeepseekCompanionClient.LOGGER.info("[XiaoD] endpoint 不支持 response_format，改用纯提示约束");
             response = send(cfg, GSON.toJson(body));
         }
         JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
@@ -101,7 +118,24 @@ public final class LlmClient {
         if (text == null) {
             throw new IllegalStateException("empty content");
         }
+        DeepseekCompanionClient.LOGGER.info("[XiaoD] llm {} in {}ms{}", cfg.model,
+                System.currentTimeMillis() - started, usage(json));
         return text.trim();
+    }
+
+    /** 记一下 token 用量：控制层调参时看这个最直接。 */
+    private static String usage(JsonObject json) {
+        try {
+            if (!json.has("usage")) {
+                return "";
+            }
+            JsonObject usage = json.getAsJsonObject("usage");
+            int prompt = usage.has("prompt_tokens") ? usage.get("prompt_tokens").getAsInt() : 0;
+            int completion = usage.has("completion_tokens") ? usage.get("completion_tokens").getAsInt() : 0;
+            return "（token " + prompt + "+" + completion + "）";
+        } catch (Throwable ignored) {
+            return "";
+        }
     }
 
     /** 发请求：按配置挑认证头（Bearer 或自定义头）。 */

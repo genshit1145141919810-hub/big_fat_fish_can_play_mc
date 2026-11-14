@@ -42,10 +42,16 @@ public record Plan(String say, List<Step> steps) {
         }
         String say = obj.has("say") && !obj.get("say").isJsonNull()
                 ? ActionValidator.sanitizeSay(obj.get("say").getAsString()) : "";
-        if (!obj.has("plan") || !obj.get("plan").isJsonArray()) {
+        // 模型偶尔会把数组叫成 steps/actions，或者干脆只回一个单步 act：
+        // 都按"计划"接受，别因为键名不同就把整次规划判死
+        JsonArray array = firstArray(obj, "plan", "steps", "actions", "plan_steps");
+        if (array == null && obj.has("act")) {
+            array = new JsonArray();
+            array.add(obj);
+        }
+        if (array == null) {
             throw new ActionValidator.FormatException("缺少 plan 数组");
         }
-        JsonArray array = obj.getAsJsonArray("plan");
         int limit = Math.max(1, Math.min(maxSteps, HARD_MAX_STEPS));
         List<Step> steps = new ArrayList<>();
         for (JsonElement element : array) {
@@ -53,8 +59,8 @@ public record Plan(String say, List<Step> steps) {
                 throw new ActionValidator.FormatException("plan 里每一项都必须是对象");
             }
             JsonObject item = element.getAsJsonObject();
-            String actRaw = item.has("act") && !item.get("act").isJsonNull() ? item.get("act").getAsString() : "";
-            String argRaw = item.has("arg") && !item.get("arg").isJsonNull() ? item.get("arg").getAsString() : "";
+            String actRaw = firstString(item, "act", "action", "id");
+            String argRaw = firstString(item, "arg", "args", "argument");
             BotAction action = BotAction.byId(actRaw);
             if (action == null) {
                 throw new ActionValidator.FormatException("计划里有未知动作: " + actRaw);
@@ -77,6 +83,24 @@ public record Plan(String say, List<Step> steps) {
     }
 
     /** 从可能带 markdown 围栏/前后缀的回复里抠出第一个 JSON 对象。 */
+    private static JsonArray firstArray(JsonObject obj, String... keys) {
+        for (String key : keys) {
+            if (obj.has(key) && obj.get(key).isJsonArray()) {
+                return obj.getAsJsonArray(key);
+            }
+        }
+        return null;
+    }
+
+    private static String firstString(JsonObject obj, String... keys) {
+        for (String key : keys) {
+            if (obj.has(key) && !obj.get(key).isJsonNull() && obj.get(key).isJsonPrimitive()) {
+                return obj.get(key).getAsString();
+            }
+        }
+        return "";
+    }
+
     private static String extractJson(String raw) {
         if (raw == null || raw.isBlank()) {
             return null;

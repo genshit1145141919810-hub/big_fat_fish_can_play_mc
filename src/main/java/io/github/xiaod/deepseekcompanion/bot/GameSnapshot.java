@@ -56,6 +56,21 @@ public final class GameSnapshot {
 
         sb.append(" | 背包 ").append(inventorySummary(p));
         sb.append(" | 主手持物 ").append(p.getMainHandStack().isEmpty() ? "空手" : p.getMainHandStack().getName().getString());
+        // 手上有没有活：模型得知道自己（或上一句话）正在做什么，别在计划跑到一半时又塞动作
+        String plan = PlanRunner.status();
+        String acquire = AcquireTask.status();
+        if ((plan != null && !plan.isBlank()) || (acquire != null && !acquire.isBlank())) {
+            sb.append(" | 正在做 ");
+            if (plan != null && !plan.isBlank()) {
+                sb.append(shorten(plan, 60));
+            }
+            if (acquire != null && !acquire.isBlank()) {
+                if (plan != null && !plan.isBlank()) {
+                    sb.append("；");
+                }
+                sb.append(shorten(acquire, 60));
+            }
+        }
         sb.append(" | ").append(HomeZone.describe());
         if (HomeZone.protectedHere()) {
             sb.append("(你现在就在保护区里)");
@@ -126,6 +141,14 @@ public final class GameSnapshot {
             return 0;
         }
         return mc.world.getEntitiesByClass(ItemEntity.class, mc.player.getBoundingBox().expand(12), e -> e.isAlive()).size();
+    }
+
+    private static String shorten(String text, int max) {
+        if (text == null) {
+            return "";
+        }
+        String flat = text.replace('\n', ' ').strip();
+        return flat.length() <= max ? flat : flat.substring(0, max) + "…";
     }
 }
 
