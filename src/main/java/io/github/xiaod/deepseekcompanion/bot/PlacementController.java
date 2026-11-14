@@ -179,9 +179,9 @@ public final class PlacementController {
             return true;
         }
         BlockPos.Mutable cursor = new BlockPos.Mutable();
-        int baseCount = 0;
-        int airCount = 0;
-        int overlapCount = 0;
+        // 1) 先找"上面是空气"的实心块，按距离从近到远试
+        BlockPos bestTop = null;
+        double bestTopDist = Double.MAX_VALUE;
         for (int dy = REACH_UP; dy >= -REACH_DOWN; dy--) {
             for (int dx = -REACH_HORIZONTAL; dx <= REACH_HORIZONTAL; dx++) {
                 for (int dz = -REACH_HORIZONTAL; dz <= REACH_HORIZONTAL; dz++) {
@@ -190,37 +190,94 @@ public final class PlacementController {
                     if (base.isAir() || !base.isSolidBlock(mc.world, cursor)) {
                         continue;
                     }
-                    baseCount++;
                     BlockPos above = cursor.up();
-                    if (!mc.world.getBlockState(above).isAir()) {
-                        airCount++;
+                    if (!mc.world.getBlockState(above).isAir() || above.equals(origin)) {
                         continue;
-                    }
-                    if (above.equals(origin)) {
-                        continue; // 不往自己脚下垫
                     }
                     if (p.getBoundingBox().intersects(new Box(above))) {
-                        overlapCount++;
                         continue;
                     }
-                    BlockPos target = cursor.toImmutable();
-                    Vec3d hit = Vec3d.ofCenter(target).add(0.0, 0.5, 0.0);
-                    p.lookAt(net.minecraft.command.argument.EntityAnchorArgumentType.EntityAnchor.EYES, hit);
-                    mc.interactionManager.interactBlock(p, Hand.MAIN_HAND,
-                            new BlockHitResult(hit, Direction.UP, target, false));
-                    p.swingHand(Hand.MAIN_HAND);
-                    DeepseekCompanionClient.LOGGER.info("[XiaoD] placed {} on {}", id, target);
-                    lastPlaced = target;
-                    return true;
+                    double dist = above.getSquaredDistance(origin);
+                    if (dist < bestTopDist) {
+                        bestTopDist = dist;
+                        bestTop = cursor.toImmutable();
+                    }
                 }
             }
         }
-io.github.xiaod.deepseekcompanion.DeepseekCompanionClient.LOGGER.info("[XiaoD] place scan {}: bases={} notAir={} overlap={} origin={}",
-                id, baseCount, airCount, overlapCount, origin);
+        if (bestTop != null) {
+            BlockPos above = bestTop.up();
+            Vec3d hit = Vec3d.ofCenter(bestTop).add(0.0, 0.5, 0.0);
+            p.lookAt(net.minecraft.command.argument.EntityAnchorArgumentType.EntityAnchor.EYES, hit);
+            mc.interactionManager.interactBlock(p, Hand.MAIN_HAND,
+                    new BlockHitResult(hit, Direction.UP, bestTop, false));
+            p.swingHand(Hand.MAIN_HAND);
+            DeepseekCompanionClient.LOGGER.info("[XiaoD] placed {} on {}", id, bestTop);
+            lastPlaced = above;
+            return true;
+        }
+        // 2) 竖井里没有"平地"可放：贴着墙面放（任意朝向），这是前期最常用的兜底
+        BlockPos bestWall = null;
+        Direction bestFace = null;
+        Vec3d bestHit = null;
+        double bestWallDist = Double.MAX_VALUE;
+        for (int dy = REACH_UP; dy >= -REACH_DOWN; dy--) {
+            for (int dx = -REACH_HORIZONTAL; dx <= REACH_HORIZONTAL; dx++) {
+                for (int dz = -REACH_HORIZONTAL; dz <= REACH_HORIZONTAL; dz++) {
+                    cursor.set(origin.getX() + dx, origin.getY() + dy, origin.getZ() + dz);
+                    if (!mc.world.getBlockState(cursor).isAir()) {
+                        continue;
+                    }
+                    BlockPos target = cursor.toImmutable();
+                    if (target.equals(origin) || p.getBoundingBox().intersects(new Box(target))) {
+                        continue;
+                    }
+                    for (Direction face : new Direction[]{Direction.UP, Direction.NORTH,
+                            Direction.SOUTH, Direction.EAST, Direction.WEST, Direction.DOWN}) {
+                        BlockPos base = target.offset(face.getOpposite());
+                        BlockState state = mc.world.getBlockState(base);
+                        if (state.isAir() || !state.isSolidBlock(mc.world, base)) {
+                            continue;
+                        }
+                        if (isInteractive(state)) {
+                            continue; // 别对着箱子/熔炉右键
+                        }
+                        double dist = target.getSquaredDistance(origin);
+                        if (dist < bestWallDist) {
+                            bestWallDist = dist;
+                            bestWall = target;
+                            bestFace = face;
+                            bestHit = Vec3d.ofCenter(base)
+                                    .add(Vec3d.of(face.getVector()).multiply(0.5));
+                        }
+                    }
+                }
+            }
+        }
+        if (bestWall != null) {
+            p.lookAt(net.minecraft.command.argument.EntityAnchorArgumentType.EntityAnchor.EYES, bestHit);
+            mc.interactionManager.interactBlock(p, Hand.MAIN_HAND,
+                    new BlockHitResult(bestHit, bestFace, bestWall.offset(bestFace.getOpposite()), false));
+            p.swingHand(Hand.MAIN_HAND);
+            DeepseekCompanionClient.LOGGER.info("[XiaoD] placed {} against {} ({})", id, bestWall.offset(bestFace.getOpposite()), bestFace);
+            lastPlaced = bestWall;
+            return true;
+        }
+        DeepseekCompanionClient.LOGGER.info("[XiaoD] place scan {}: no spot near {}", id, origin);
         BotBrain.say("脚边没有能放 " + id + " 的位置");
         return false;
     }
 
+    /** 对着这些方块右键会开界面，别拿它当放置底面。 */
+    private static boolean isInteractive(BlockState state) {
+        return state.hasBlockEntity()
+                || state.isOf(net.minecraft.block.Blocks.CRAFTING_TABLE)
+                || state.isOf(net.minecraft.block.Blocks.FURNACE)
+                || state.isOf(net.minecraft.block.Blocks.CHEST)
+                || state.isOf(net.minecraft.block.Blocks.BARREL)
+                || state.isOf(net.minecraft.block.Blocks.ENCHANTING_TABLE)
+                || state.isOf(net.minecraft.block.Blocks.ANVIL);
+    }
     /** 在指定格子放一个（选相邻实心方块的朝向面）。给"堵墙"用。 */
     public static boolean placeAt(MinecraftClient mc, BlockPos target) {
         ClientPlayerEntity p = mc.player;

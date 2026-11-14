@@ -45,7 +45,7 @@ public final class AcquireTask {
     /** 硬性下限：木头一次至少挖够这么多，别抠着算。 */
     private static final int WOOD_FLOOR = 10;
 
-    private enum Op { CRAFT, SMELT, MINE, HUNT, PLACE, DIG }
+    private enum Op { CRAFT, SMELT, MINE, HUNT, PLACE, DIG, EXPLORE }
 
     private record Step(Op op, String item, String arg, int count) {
         @Override
@@ -927,6 +927,17 @@ public final class AcquireTask {
                 stepSince = now;
                 return;
             }
+            if (step.op() == Op.EXPLORE) {
+                boolean walking = BaritoneBridge.expectingMovement();
+                if (walking && now - stepSince < 120_000L) {
+                    return;
+                }
+                BaritoneBridge.stop();
+                PLAN.poll();
+                stepStarted = false;
+                stepSince = now;
+                return;
+            }
             if (busy) {
                 if (now - stepSince > STEP_TIMEOUT_MS) {
                     nextCandidate(mc, step + " 超时");
@@ -999,6 +1010,7 @@ public final class AcquireTask {
                 yield placedOk;
             }
             case DIG -> startDeepDig(mc, step);
+            case EXPLORE -> startExplore(mc, step);
         };
         stepStarted = true;
         stepSince = now;
@@ -1084,7 +1096,13 @@ public final class AcquireTask {
         }
         for (String variant : ItemFamilies.variants(item)) {
             for (String block : BlockDrops.blocksFor(variant)) {
-                double dist = MiningController.nearestDistance(mc, block, 24);
+                if (isWood(item) && !MiningController.naturalLog(block)) {
+                    continue; // 去皮木/木板不是木头来源
+                }
+                int minY = isWood(item)
+                        ? io.github.xiaod.deepseekcompanion.config.CompanionConfig.get().minWoodY
+                        : Integer.MIN_VALUE;
+                double dist = MiningController.nearestDistanceAbove(mc, block, 24, minY);
                 double score = dist < 0 ? 1000.0 : dist;
                 if (score < bestScore) {
                     bestScore = score;
@@ -1096,6 +1114,12 @@ public final class AcquireTask {
     }
 
     private static boolean startMine(MinecraftClient mc, Step step) {
+        if (isWood(step.item())) {
+            // 木头：自己挖，才能遵守"低于 minWoodY 不挖"（Baritone 会去矿井里找）
+            String woodBlock = mineBlockFor(step.item());
+            return MiningController.start(mc, woodBlock == null ? step.arg() : woodBlock,
+                    true, Math.max(1, step.count()));
+        }
         if (io.github.xiaod.deepseekcompanion.config.CompanionConfig.get().fairPlay) {
             // 公平模式：不用 Baritone 的 #mine（它会用区块数据挑目标），改自己挖看得见的
             String visibleBlock = mineBlockFor(step.item());
@@ -1125,6 +1149,27 @@ public final class AcquireTask {
         return ok;
     }
 
+    /** 走去远处找资源：随机方向 40~64 格，走到位或超时就继续下一步。 */
+    private static boolean startExplore(MinecraftClient mc, Step step) {
+        if (mc.player == null) {
+            return false;
+        }
+        if (!BaritoneBridge.available()) {
+            return false;
+        }
+        int dx = (int) (Math.random() * 2 * 48) - 48;
+        int dz = (int) (Math.random() * 2 * 48) - 48;
+        if (Math.abs(dx) < 24 && Math.abs(dz) < 24) {
+            dx = dx >= 0 ? 32 : -32;
+        }
+        int x = mc.player.getBlockX() + dx;
+        int z = mc.player.getBlockZ() + dz;
+        int y = mc.player.getBlockY();
+        DeepseekCompanionClient.LOGGER.info("[XiaoD] acquire: 走去 ({}, {}, {}) 那边看看有没有 {}",
+                x, y, z, step.item());
+        return BaritoneBridge.gotoPos(x, y, z);
+    }
+
     /** 挖阶梯下去到目标高度（Baritone 不肯往垂直井里走，这一件只能自己来）。 */
     private static boolean startDeepDig(MinecraftClient mc, Step step) {
         if (mc.player == null) {
@@ -1148,7 +1193,13 @@ public final class AcquireTask {
     private static boolean anyFamilyBlockNearby(String item) {
         for (String variant : ItemFamilies.variants(item)) {
             for (String block : BlockDrops.blocksFor(variant)) {
-                if (MiningController.nearestDistance(MinecraftClient.getInstance(), block, 24) >= 0) {
+                if (isWood(item) && !MiningController.naturalLog(block)) {
+                    continue;
+                }
+                int minY = isWood(item)
+                        ? io.github.xiaod.deepseekcompanion.config.CompanionConfig.get().minWoodY
+                        : Integer.MIN_VALUE;
+                if (MiningController.nearestDistanceAbove(MinecraftClient.getInstance(), block, 24, minY) >= 0) {
                     return true;
                 }
             }
@@ -1170,6 +1221,10 @@ public final class AcquireTask {
 
     /** 目标在地底、Baritone 走不到时，先自己挖下去再试。 */
     private static boolean digDownThenRetry(Step step) {
+        // 只有"在地底深处才有"的东西才值得往下挖；木头/石头这种地表资源往下钻是白费
+        if (isWood(step.item()) || deepY(step.item()) == 0) {
+            return false;
+        }
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player == null) {
             return false;
@@ -1196,6 +1251,9 @@ public final class AcquireTask {
         List<String> alts = MINE_ALTS.get(step.item());
         while (alts != null && !alts.isEmpty()) {
             String alt = alts.remove(0);
+            if (isWood(step.item()) && !MiningController.naturalLog(alt)) {
+                continue;
+            }
             String block = blockFor(alt);
             if (block == null) {
                 continue;
@@ -1208,6 +1266,15 @@ public final class AcquireTask {
             return false;
         }
         // 补挖只补差额：冗余只属于一开始那一下预估，不再往上加
+        if (isWood(step.item()) && mineRetries < MAX_MINE_RETRIES) {
+            // 附近没树/走不过去：往远处走一段找林子（#mine 会被这条 goto 打断，所以单独一步）
+            mineRetries++;
+            DeepseekCompanionClient.LOGGER.info("[XiaoD] acquire: 附近砍不到树，走远点找（第 {}/{} 次）",
+                    mineRetries, MAX_MINE_RETRIES);
+            PLAN.addFirst(new Step(Op.MINE, step.item(), step.arg(), Math.max(1, step.count() - gained)));
+            PLAN.addFirst(new Step(Op.EXPLORE, step.item(), "", 0));
+            return true;
+        }
         int missing = Math.max(1, step.count() - gained);
         mineRetries++;
         DeepseekCompanionClient.LOGGER.info("[XiaoD] acquire: {} 只到手 {} 个，还差 {} 个（第 {}/{} 次）",
@@ -1276,6 +1343,9 @@ public final class AcquireTask {
             stepStarted = false;
             int gained = Math.max(0, have - base);
             // 深层矿：先自己挖下去，再让 Baritone 顺着井道去挖
+            if (retryMine(step, gained)) {
+                return;
+            }
             if (digDownThenRetry(step)) {
                 return;
             }
@@ -1418,6 +1488,20 @@ public final class AcquireTask {
     }
 
     /** 背包里（或正在砍的）是哪种木头：oak / spruce / birch …；没有就返回 null。 */
+    /** 背包里没木头时，看附近最近的是哪种树：这样伐木和合木板是同一个树种。 */
+    private static String nearestWoodType() {
+        MinecraftClient mc = MinecraftClient.getInstance();
+        for (String block : BlockDrops.blocksFor("oak_log")) {
+            if (MiningController.nearestDistance(mc, block, 32) >= 0) {
+                int cut = block.indexOf("_log");
+                if (cut > 0) {
+                    return block.substring(0, cut);
+                }
+            }
+        }
+        return null;
+    }
+
     private static String woodType(MinecraftClient mc) {
         if (mc == null || mc.player == null) {
             return null;
@@ -1435,7 +1519,7 @@ public final class AcquireTask {
                 }
             }
         }
-        return null;
+        return nearestWoodType();
     }
 
     private static String resolveToken(String token) {

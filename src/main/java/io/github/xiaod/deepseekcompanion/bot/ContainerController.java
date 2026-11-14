@@ -76,6 +76,16 @@ public final class ContainerController {
     /** 成品格取不空的重试次数（背包满时别死循环）。 */
     private static int resultRetries;
 
+    /** 合成点击的状态机：每一步都先验证上一步真的生效，再走下一步。 */
+    private enum CraftAct { CLEAR, PICKUP, PLACE, PUTBACK, TAKE, CHECK }
+    private record CraftStep(CraftAct act, int slot, int cell, int want) {
+    }
+    private static final java.util.Deque<CraftStep> CRAFT_Q = new java.util.ArrayDeque<>();
+    private static long craftStepDeadline;
+    private static int takeRetries;
+    /** 取成品前的短暂等待：客户端结果槽偶尔比最后一次点击晚一两个 tick。 */
+    private static long takeWaitUntil;
+
     private ContainerController() {
     }
 
@@ -398,6 +408,10 @@ public final class ContainerController {
                 phase = Phase.CLICKS;
             }
             case CLICKS -> {
+                if (mode != Mode.SMELT) {
+                    tickCraftMachine(mc, p, now);
+                    return;
+                }
                 Click click = QUEUE.poll();
                 if (click == null) {
                     if (mode == Mode.SMELT) {
@@ -515,10 +529,9 @@ public final class ContainerController {
         boolean tooBig = false;
         for (var recipe : candidates) {
             if (recipe.width() > gridWidth || recipe.height() > gridWidth) {
-                tooBig = true; // 2x2 网格装不下 3x3 的配方
+                tooBig = true;
                 continue;
             }
-            // 同一摞材料只用抓一次：抓起整摞 → 每个格子右键放一个 → 剩下的放回
             Map<Integer, java.util.List<Integer>> groups = new java.util.LinkedHashMap<>();
             Map<Integer, Integer> used = new java.util.HashMap<>();
             boolean ok = true;
@@ -530,40 +543,47 @@ public final class ContainerController {
                     }
                     int invSlot = findCraftSlot(inventory, token, used);
                     if (invSlot < 0) {
-                        missing = token; // 缺的就是这一格的材料
+                        missing = token;
                         ok = false;
                         break;
                     }
                     used.merge(invSlot, 1, Integer::sum);
-                    int handlerSlot = handlerSlot(handler, inventory, invSlot);
-                    if (handlerSlot < 0) {
+                    int slot = handlerSlot(handler, inventory, invSlot);
+                    if (slot < 0) {
                         ok = false;
                         break;
                     }
-                    groups.computeIfAbsent(handlerSlot, k -> new ArrayList<>())
+                    groups.computeIfAbsent(slot, k -> new ArrayList<>())
                             .add(1 + row * gridWidth + col);
                 }
             }
             if (ok) {
-                List<Click> plan = new ArrayList<>();
-                // 先清空合成格：上一轮失败留下的材料会把这一轮摆歪
-                for (int slot = 1; slot <= gridWidth * gridWidth; slot++) {
-                    if (!handler.slots.get(slot).getStack().isEmpty()) {
-                        plan.add(new Click(slot, 0, SlotActionType.QUICK_MOVE));
+                CRAFT_Q.clear();
+                takeRetries = 0;
+                takeWaitUntil = 0L;
+                // 1) 先清空合成格：一格一个动作，清完再摆（同一批里清+摆会落错格）
+                for (int cell = 1; cell <= gridWidth * gridWidth; cell++) {
+                    if (!handler.slots.get(cell).getStack().isEmpty()) {
+                        CRAFT_Q.add(new CraftStep(CraftAct.CLEAR, 0, cell, 0));
                     }
                 }
+                // 2) 逐格摆材料：抓取 -> 放一个 -> 放回，每一步都有验证
                 for (var group : groups.entrySet()) {
-                    plan.add(new Click(group.getKey(), 0, SlotActionType.PICKUP));
+                    CRAFT_Q.add(new CraftStep(CraftAct.PICKUP, group.getKey(), 0, 0));
                     for (int cell : group.getValue()) {
-                        plan.add(new Click(cell, 1, SlotActionType.PICKUP));
+                        CRAFT_Q.add(new CraftStep(CraftAct.PLACE, group.getKey(), cell, 1));
                     }
-                    plan.add(new Click(group.getKey(), 0, SlotActionType.PICKUP));
+                    CRAFT_Q.add(new CraftStep(CraftAct.PUTBACK, group.getKey(), 0, 0));
                 }
-                io.github.xiaod.deepseekcompanion.DeepseekCompanionClient.LOGGER.info("[XiaoD] craft recipe {} grid={}x{} cells={} clicks={}",
+                // 3) 取成品 + 确认真的进了背包
+                CRAFT_Q.add(new CraftStep(CraftAct.TAKE, 0, 0, 0));
+                CRAFT_Q.add(new CraftStep(CraftAct.CHECK, 0, 0, 0));
+                craftStepDeadline = 0L;
+                io.github.xiaod.deepseekcompanion.DeepseekCompanionClient.LOGGER.info(
+                        "[XiaoD] craft recipe {} grid={}x{} cells={} steps={}",
                         recipe.result(), recipe.width(), recipe.height(),
-                        java.util.Arrays.toString(recipe.cells()), plan.size());
-                QUEUE.addAll(plan);
-                QUEUE.add(new Click(0, 0, SlotActionType.QUICK_MOVE));
+                        java.util.Arrays.toString(recipe.cells()), CRAFT_Q.size());
+                phase = Phase.CLICKS;
                 return;
             }
         }
@@ -576,6 +596,118 @@ public final class ContainerController {
         }
     }
 
+    /** 合成状态机：一次只做一个动作，验证通过才继续。 */
+    private static void tickCraftMachine(MinecraftClient mc, ClientPlayerEntity p, long now) {
+        if (mc.interactionManager == null) {
+            fail("没有交互管理器");
+            return;
+        }
+        ScreenHandler handler = p.currentScreenHandler;
+        CraftStep step = CRAFT_Q.peek();
+        if (step == null) {
+            if (pendingCrafts > 1) {
+                pendingCrafts--;
+                buildCraftClicks(mc, handler);
+                return;
+            }
+            p.closeHandledScreen();
+            if (treeMode) {
+                mode = Mode.NONE;
+                startTreeStep(mc);
+            } else {
+                mode = Mode.NONE;
+            }
+            return;
+        }
+        if (craftStepDeadline == 0L) {
+            craftStepDeadline = now + 3000L;
+        }
+        if (now > craftStepDeadline) {
+            fail("合成动作超时：" + step.act());
+            return;
+        }
+        boolean cursorEmpty = handler.getCursorStack().isEmpty();
+        switch (step.act()) {
+            case CLEAR -> {
+                if (handler.slots.get(step.cell()).getStack().isEmpty()) {
+                    doneStep();
+                    return;
+                }
+                clickSlot(mc, p, step.cell(), 0, SlotActionType.QUICK_MOVE);
+            }
+            case PICKUP -> {
+                if (!cursorEmpty) {
+                    doneStep();
+                    return;
+                }
+                clickSlot(mc, p, step.slot(), 0, SlotActionType.PICKUP);
+            }
+            case PLACE -> {
+                if (handler.slots.get(step.cell()).getStack().getCount() >= step.want()) {
+                    doneStep();
+                    return;
+                }
+                if (cursorEmpty) {
+                    fail("手上没有材料了（" + targetItem + "）");
+                    return;
+                }
+                clickSlot(mc, p, step.cell(), 1, SlotActionType.PICKUP);
+            }
+            case PUTBACK -> {
+                if (cursorEmpty) {
+                    doneStep();
+                    return;
+                }
+                clickSlot(mc, p, step.slot(), 0, SlotActionType.PICKUP);
+            }
+            case TAKE -> {
+                var result = handler.slots.get(0).getStack();
+                if (result.isEmpty()) {
+                    if (takeWaitUntil == 0L) {
+                        takeWaitUntil = now + 600L;
+                        return;
+                    }
+                    if (now < takeWaitUntil) {
+                        return;
+                    }
+                    fail("合成格没有成品：" + gridContents(handler));
+                    return;
+                }
+                takeWaitUntil = 0L;
+                String got = Registries.ITEM.getId(result.getItem()).getPath();
+                if (!got.equals(targetItem)) {
+                    fail("合成结果不对（" + got + "，想要 " + targetItem + "）：" + gridContents(handler));
+                    return;
+                }
+                clickSlot(mc, p, 0, 0, SlotActionType.QUICK_MOVE);
+                doneStep();
+            }
+            case CHECK -> {
+                if (handler.slots.get(0).getStack().isEmpty()) {
+                    doneStep();
+                    return;
+                }
+                if (++takeRetries > 8) {
+                    fail("背包满了，成品拿不出来");
+                    return;
+                }
+                clickSlot(mc, p, 0, 0, SlotActionType.QUICK_MOVE);
+            }
+        }
+    }
+
+    private static void doneStep() {
+        CRAFT_Q.poll();
+        craftStepDeadline = 0L;
+    }
+
+    private static void clickSlot(MinecraftClient mc, ClientPlayerEntity p, int slot, int button,
+                                   SlotActionType type) {
+        if (mc.interactionManager == null) {
+            return;
+        }
+        mc.interactionManager.clickSlot(p.currentScreenHandler.syncId, slot, button, type, p);
+    }
     /** 把合成格里的东西摊成一句话，摆错时好查。 */
     private static String gridContents(ScreenHandler handler) {
         StringBuilder sb = new StringBuilder();

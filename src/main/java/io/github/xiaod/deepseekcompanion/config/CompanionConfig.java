@@ -75,6 +75,8 @@ public final class CompanionConfig {
     public boolean switchWeapon = true;
     /** 挖不同方块自动换最合适的工具（镐/斧/锹/剪刀）。 */
     public boolean autoTool = true;
+    /** 低于这个高度的木头不挖（废弃矿井里的支撑木不算"资源"）。 */
+    public int minWoodY = 0;
     /** 快捷栏用空了自动从背包补回来。 */
     public boolean autoReplenish = true;
     /**

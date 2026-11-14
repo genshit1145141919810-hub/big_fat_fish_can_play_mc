@@ -167,6 +167,39 @@ public final class MiningController {
                 && !mc.world.getBlockState(pos.down()).getCollisionShape(mc.world, pos.down()).isEmpty();
     }
 
+    /** 天然原木（排除去皮木、木板这些"加工过的木头"）。 */
+    public static boolean naturalLog(String id) {
+        if (id == null || id.startsWith("stripped_")) {
+            return false;
+        }
+        return id.endsWith("_log") || id.endsWith("_stem")
+                || id.endsWith("_wood") || id.endsWith("_hyphae");
+    }
+
+    /** 最近的这种方块有多远；低于 minY 的不算（找木头时避开废弃矿井）。 */
+    public static double nearestDistanceAbove(MinecraftClient mc, String id, int radius, int minY) {
+        if (mc.player == null || mc.world == null || id == null) {
+            return -1.0;
+        }
+        int r = Math.max(1, Math.min(radius, SCAN_RADIUS));
+        BlockPos origin = mc.player.getBlockPos();
+        int steps = 0;
+        for (BlockPos pos : BlockPos.iterateOutwards(origin, r, r, r)) {
+            if (++steps > MAX_SCAN_STEPS) {
+                break;
+            }
+            BlockState state = mc.world.getBlockState(pos);
+            if (state.isAir() || !Registries.BLOCK.getId(state.getBlock()).getPath().equals(id)) {
+                continue;
+            }
+            if (pos.getY() < minY) {
+                continue;
+            }
+            return Math.sqrt(pos.getSquaredDistance(origin));
+        }
+        return -1.0;
+    }
+
     /** 最近的这种方块有多远（没找到返回 -1）：挑配料时用它比远近。 */
     public static double nearestDistance(MinecraftClient mc, String id, int radius) {
         if (mc.player == null || mc.world == null || id == null) {
@@ -249,6 +282,9 @@ public final class MiningController {
         BlockState state = mc.world.getBlockState(pos);
         if (state.isAir()) {
             return false;
+        }
+        if (chop && pos.getY() < io.github.xiaod.deepseekcompanion.config.CompanionConfig.get().minWoodY) {
+            return false; // 地下的支撑木不算资源
         }
         if (io.github.xiaod.deepseekcompanion.config.CompanionConfig.get().fairPlay
                 && !visible(mc, pos)) {

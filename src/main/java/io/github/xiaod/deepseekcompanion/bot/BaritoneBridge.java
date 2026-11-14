@@ -124,6 +124,7 @@ public final class BaritoneBridge {
         return exec("mine " + block);
     }
 
+
     public static boolean stop() {
         return exec("stop");
     }
