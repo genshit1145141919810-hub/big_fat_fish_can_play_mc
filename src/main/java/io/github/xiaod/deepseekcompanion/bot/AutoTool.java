@@ -86,7 +86,7 @@ public final class AutoTool {
             return false;
         }
         if (slot < 9) {
-            inventory.setSelectedSlot(slot);
+            Hotbar.select(mc, slot);
             return true;
         }
         int hotbar = inventory.getSelectedSlot();

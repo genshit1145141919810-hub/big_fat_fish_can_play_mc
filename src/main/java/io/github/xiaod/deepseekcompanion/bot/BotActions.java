@@ -131,7 +131,7 @@ public final class BotActions {
         if (slot < 0) {
             return false;
         }
-        p.getInventory().setSelectedSlot(slot);
+        Hotbar.select(mc, slot);
         eating = true;
         eatingUntil = System.currentTimeMillis() + 2600;
         nextReissueAt = 0;

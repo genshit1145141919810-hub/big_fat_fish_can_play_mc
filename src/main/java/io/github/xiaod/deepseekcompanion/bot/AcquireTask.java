@@ -1216,7 +1216,8 @@ public final class AcquireTask {
                 }
                 String wood = logWood(step.item());
                 if (wood != null && NO_WOOD.add(wood)) {
-                    replan(mc, "这一带没 " + wood + " 树，换一种树种");
+                    // 换树种不算"重排"：重排有 3 次上限，而树种有八九种，算进去就试不完
+                    rebuildPlan(mc, "这一带没 " + wood + " 树，换一种树种");
                     return;
                 }
                 nextCandidate(mc, step + " 附近找不到 " + step.arg() + " 了");
@@ -1283,6 +1284,13 @@ public final class AcquireTask {
                         : Integer.MIN_VALUE;
                 double dist = MiningController.nearestDistanceAbove(mc, block, 24, minY);
                 double score = dist < 0 ? 1000.0 : dist;
+                // 同名方块优先（竹子挖 bamboo，不是 bamboo_sapling），树苗/盆栽往后排
+                if (block.equals(variant)) {
+                    score -= 5.0;
+                }
+                if (block.endsWith("_sapling") || block.startsWith("potted_")) {
+                    score += 100.0;
+                }
                 if (score < bestScore) {
                     bestScore = score;
                     best = block;

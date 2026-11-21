@@ -65,7 +65,7 @@ public final class InteractController {
             BotBrain.say("手上拿不到 " + id);
             return false;
         }
-        mc.player.getInventory().setSelectedSlot(hotbar);
+        Hotbar.select(mc, hotbar);
         return true;
     }
 

@@ -301,12 +301,12 @@ public final class CombatController {
             if (handlerSlot >= 0) {
                 mc.interactionManager.clickSlot(mc.player.currentScreenHandler.syncId, handlerSlot, hotbar,
                         net.minecraft.screen.slot.SlotActionType.SWAP, mc.player);
-                mc.player.getInventory().setSelectedSlot(hotbar);
+                Hotbar.select(mc, hotbar);
                 return;
             }
         }
         if (hotbar != mc.player.getInventory().getSelectedSlot()) {
-            mc.player.getInventory().setSelectedSlot(hotbar);
+            Hotbar.select(mc, hotbar);
         }
     }
 
@@ -503,7 +503,7 @@ public final class CombatController {
             if (preCombatSlot < 0) {
                 preCombatSlot = inventory.getSelectedSlot();
             }
-            inventory.setSelectedSlot(best);
+            Hotbar.select(mc, best);
             if (best != lastWeaponLogSlot) {
                 lastWeaponLogSlot = best;
                 DeepseekCompanionClient.LOGGER.info("[XiaoD] weapon -> slot {} (dps {})", best, String.format("%.2f", bestDps));

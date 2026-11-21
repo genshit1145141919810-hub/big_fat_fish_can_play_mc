@@ -170,7 +170,7 @@ public final class PlacementController {
             BotBrain.say("身上没有 " + id + "（工作台/熔炉这些得先合出来）");
             return false;
         }
-        p.getInventory().setSelectedSlot(slot);
+        Hotbar.select(mc, slot);
 
         BlockPos origin = p.getBlockPos();
         // 放之前先给自己清一块地：站在树/墙里的时候永远找不到空位
@@ -197,6 +197,11 @@ public final class PlacementController {
                     cursor.set(origin.getX() + dx, origin.getY() + dy, origin.getZ() + dz);
                     BlockState base = mc.world.getBlockState(cursor);
                     if (base.isAir() || !base.isSolidBlock(mc.world, cursor)) {
+                        continue;
+                    }
+                    // 对着工作台/熔炉/箱子右键是"打开界面"而不是放方块：熔炉一直放不下去
+                    // 就是因为最近的实心方块正好是刚放下的工作台
+                    if (isInteractive(base)) {
                         continue;
                     }
                     BlockPos above = cursor.up();
@@ -357,7 +362,7 @@ public final class PlacementController {
             }
         }
         mc.interactionManager.clickSlot(0, inventorySlot, hotbar, net.minecraft.screen.slot.SlotActionType.SWAP, p);
-        p.getInventory().setSelectedSlot(hotbar);
+        Hotbar.select(mc, hotbar);
         return hotbar; // 服务端同步要一 tick，别在这里立刻校验背包
     }
 }

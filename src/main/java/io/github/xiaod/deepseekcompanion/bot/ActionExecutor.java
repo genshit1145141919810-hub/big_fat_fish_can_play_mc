@@ -348,7 +348,7 @@ public final class ActionExecutor {
         int dropped = 0;
         for (int slot = 0; slot < 9 && dropped < 4; slot++) {
             if (matchesItem(inventory.getStack(slot), itemId)) {
-                inventory.setSelectedSlot(slot);
+                Hotbar.select(mc, slot);
                 p.dropSelectedItem(true);
                 dropped++;
             }
@@ -372,7 +372,7 @@ public final class ActionExecutor {
                 DeepseekCompanionClient.LOGGER.warn("[XiaoD] hotbar swap failed", t);
                 return false;
             }
-            inventory.setSelectedSlot(hotbar);
+            Hotbar.select(mc, hotbar);
             p.dropSelectedItem(true);
             return true;
         }

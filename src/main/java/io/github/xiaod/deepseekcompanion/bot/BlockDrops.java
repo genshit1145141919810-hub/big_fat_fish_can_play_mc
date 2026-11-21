@@ -49,6 +49,14 @@ public final class BlockDrops {
         for (String block : blocksFor(itemId)) {
             double dist = MiningController.nearestDistance(mc, block, 24);
             double score = dist < 0 ? 1000.0 : dist;
+            // 名字一样的那种方块优先：竹子该挖 bamboo，不该去挖 potted/bamboo_sapling；
+            // 树苗、盆栽这类"长得像但不是天然资源"的方块排后面
+            if (itemId != null && block.equals(itemId)) {
+                score -= 5.0;
+            }
+            if (block.endsWith("_sapling") || block.startsWith("potted_")) {
+                score += 100.0;
+            }
             if (score < bestScore) {
                 bestScore = score;
                 best = block;

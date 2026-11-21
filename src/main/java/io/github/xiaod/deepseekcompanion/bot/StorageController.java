@@ -105,6 +105,9 @@ public final class StorageController {
 
     public static void cancel(MinecraftClient mc) {
         QUEUE.clear();
+        MOVED.clear();
+        chestPos = null;
+        WANTED.clear();
         mode = Mode.NONE;
         phase = Phase.FIND;
         if (mc.player != null && mc.currentScreen != null) {

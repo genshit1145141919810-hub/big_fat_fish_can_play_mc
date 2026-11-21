@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased — bug sweep after 0.5.0-alpha.1
+
+- **Baritone is a hard dependency**: `fabric.mod.json` moved `baritone` from `suggests` to
+  `depends`, so the loader reports a missing Baritone instead of the bot silently losing pathing.
+- **Placing a furnace onto the crafting table opened the table instead of placing.** The
+  top-face candidate scan did not skip interactive blocks; every retry clicked the table and the
+  whole iron chain died with "PLACE:furnace 放不下去". Placement now never targets a block whose
+  right-click opens a GUI.
+- **Hotbar selection is announced to the server immediately** (`Hotbar.select` sends
+  `UpdateSelectedSlotC2SPacket`). Vanilla syncs the slot on the next tick, so "switch item, then
+  right-click/use/drop in the same tick" acted on the *previous* item — observed as a furnace
+  that would not place and as eating that did nothing. All controllers use the helper now.
+- **Model output can no longer crash the client**: `Intent.parse`/`Plan.parse` guard against
+  non-primitive `say`/`act`/`arg` values; `BotBrain.tick`, `ChatCoordinator.onIncoming` and the
+  chat-command mixin catch and log (throttled) any controller exception instead of throwing out
+  of the client tick / off the chat path.
+- **`en_us.json` was invalid for vanilla** (`Skipped language file … Expected strings to be a
+  string`): it is now a plain 中文→English map and the `%s` template rules moved to
+  `en_us.rules.json`, which `Lang` loads itself.
+- **Combat engaged from ten blocks away**: the melee branch compared distance against
+  `reach²`; it now compares distance against reach, so the bot walks in and only then swings.
+- **Planner depth budget 6 → 14** (tool-tier chains are genuinely deep: iron pick → ingot → raw
+  iron → iron ore → stone pick → cobblestone → wooden pick → planks → log). Notes are capped, fuel
+  subtrees are solved from depth 0, and crafted-only items (planks/sticks/…) are never treated as
+  mineable. Switching wood type no longer consumes the replan budget.
+- **Block-drop mapping prefers the natural block** (bamboo → `bamboo`, not `bamboo_sapling`), so
+  a bamboo fallback no longer mines a sapling that never generates naturally.
+- **`TaskTracker` no longer declares a mining task finished while Baritone is still mining**
+  (it consults the last Baritone command, `mine` included).
+- **`scan` accepts comma lists**, **`mine`/`use` with a list pick the nearest block**,
+  **`.xd stop` cancels pending placement and an in-progress dig**, **storage remembers which chest
+  got what** (`Memory.noteStash` was never called), and config numbers are clamped on load.
+
 ## 0.5.0-alpha.1 — reliable hands, honest planning (1.21.11)
 
 The build where the hands stopped fighting the brain: crafting, armour swapping and

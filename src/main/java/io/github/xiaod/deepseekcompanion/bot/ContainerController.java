@@ -399,7 +399,7 @@ public final class ContainerController {
                         fail("快捷栏满了，腾个位置给我");
                         return;
                     }
-                    p.getInventory().setSelectedSlot(hotbar);
+                    Hotbar.select(mc, hotbar);
                     campfirePlaced = 0;
                     until = 0;
                     phase = Phase.PLACE;

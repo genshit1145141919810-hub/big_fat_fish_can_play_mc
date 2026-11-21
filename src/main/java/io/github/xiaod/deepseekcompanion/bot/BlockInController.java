@@ -110,7 +110,7 @@ public final class BlockInController {
             cancel(mc);
             return;
         }
-        p.getInventory().setSelectedSlot(slot);
+        Hotbar.select(mc, slot);
         // 朝怪的方向垒：先脚下那一格，再头上那一格
         Direction facing = horizontalTowards(p, threat);
         BlockPos origin = p.getBlockPos();

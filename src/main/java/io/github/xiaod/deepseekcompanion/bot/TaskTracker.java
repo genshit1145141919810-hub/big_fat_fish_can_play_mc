@@ -62,6 +62,12 @@ public final class TaskTracker {
             lastMoveAt = System.currentTimeMillis();
             return;
         }
+        // 站着不动也可能是在原地挖：Baritone 还有 mine/goto 在跑就不算"干完了"，
+        // 否则计划会在还在挖的时候往下走，两个动作抢同一只手
+        if (BaritoneBridge.expectingMovement()) {
+            lastMoveAt = System.currentTimeMillis();
+            return;
+        }
         if (System.currentTimeMillis() - lastMoveAt > IDLE_END_MS) {
             clear();
         }

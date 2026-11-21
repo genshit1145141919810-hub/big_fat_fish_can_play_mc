@@ -122,7 +122,7 @@ public final class GiveController {
         int dropped = 0;
         for (int slot = 0; slot < 9 && dropped < 4; slot++) {
             if (matches(inventory.getStack(slot), id)) {
-                inventory.setSelectedSlot(slot);
+                Hotbar.select(mc, slot);
                 p.dropSelectedItem(true);
                 dropped++;
             }
@@ -144,7 +144,7 @@ public final class GiveController {
                 DeepseekCompanionClient.LOGGER.warn("[XiaoD] hotbar swap failed", t);
                 return 0;
             }
-            inventory.setSelectedSlot(hotbar);
+            Hotbar.select(mc, hotbar);
             p.dropSelectedItem(true);
             return 1;
         }

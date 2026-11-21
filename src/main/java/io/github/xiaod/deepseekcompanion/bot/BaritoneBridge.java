@@ -80,7 +80,9 @@ public final class BaritoneBridge {
             lastMoveCommand = null;
             return;
         }
-        if (command.startsWith("goto ") || command.equals("come") || command.startsWith("follow ")) {
+        // mine 也算"它还在干活"：任务跟踪据此区分"站着不动"是挖完了还是卡住了
+        if (command.startsWith("goto ") || command.equals("come") || command.startsWith("follow ")
+                || command.startsWith("mine ")) {
             lastMoveCommand = command;
             lastMoveAt = System.currentTimeMillis();
         }
