@@ -9,7 +9,8 @@ const path = require('path');
 
 const langFile = 'src/main/resources/assets/big_fat_fish_can_play_mc/lang/en_us.json';
 const json = JSON.parse(fs.readFileSync(langFile, 'utf8'));
-const keys = Object.keys(json.strings || {});
+// 语言文件是平铺的 中文→译文（原版格式）；老的 {strings:{}} 套壳也认
+const keys = Object.keys(json.strings || json);
 
 function walk(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -38,7 +39,9 @@ const translated = new Set(keys);
 const untranslated = [...zh].filter((t) => !translated.has(t));
 
 console.log('strings in en_us.json :', keys.length);
-console.log('rules in en_us.json   :', (json.rules || []).length);
+const rulesFile = langFile.replace(/\.json$/, '.rules.json');
+const rules = fs.existsSync(rulesFile) ? (JSON.parse(fs.readFileSync(rulesFile, 'utf8')).rules || []) : [];
+console.log('rules in en_us.rules.json :', rules.length);
 console.log('chinese literals       :', zh.size);
 console.log('untranslated           :', untranslated.length);
 if (missingInCode.length) {

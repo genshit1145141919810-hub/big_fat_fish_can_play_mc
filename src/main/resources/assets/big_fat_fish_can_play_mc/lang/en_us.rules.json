@@ -1,0 +1,65 @@
+{
+  "note": "Template rules: %s matches any text. Loaded by chat/Lang.java, not by vanilla.",
+  "rules": [
+    {
+      "zh": "弄完了：%s（%s 个）",
+      "en": "Done: %s (×%s)"
+    },
+    {
+      "zh": "弄不到 %s：%s",
+      "en": "Cannot get %s: %s"
+    },
+    {
+      "zh": "身上没有 %s",
+      "en": "No %s in the inventory"
+    },
+    {
+      "zh": "不知道 %s 从哪来",
+      "en": "No idea where %s comes from"
+    },
+    {
+      "zh": "目标：%s",
+      "en": "Goal: %s"
+    },
+    {
+      "zh": "合成 %s（%s 次）",
+      "en": "Crafting %s (×%s)"
+    },
+    {
+      "zh": "获取 %s 现在 %s 个",
+      "en": "Acquired %s, now %s"
+    },
+    {
+      "zh": "挖 %s 级阶梯到 y=%s，再挖 %s",
+      "en": "Digging %s levels to y=%s, then mining %s"
+    },
+    {
+      "zh": "§7本账号: §f%s",
+      "en": "§7Account: §f%s"
+    },
+    {
+      "zh": "§7自动决策: §f%s",
+      "en": "§7Autonomous: §f%s"
+    },
+    {
+      "zh": "§7聊天调试: §f%s",
+      "en": "§7Chat debug: §f%s"
+    },
+    {
+      "zh": "§7服务器协议: §f%s",
+      "en": "§7Server protocol: §f%s"
+    },
+    {
+      "zh": "§7公平模式: §f%s",
+      "en": "§7Fair play: §f%s"
+    },
+    {
+      "zh": "§b当前群系：§f%s",
+      "en": "§bBiome: §f%s"
+    },
+    {
+      "zh": "后续里程碑: %s",
+      "en": "Next milestones: %s"
+    }
+  ]
+}

@@ -107,8 +107,10 @@ public final class Lang {
             return; // 源语言，不用翻
         }
         Map<String, String> loaded = load(code);
+        String ruleCode = code;
         if (loaded == null && !code.startsWith("en")) {
             loaded = load("en_us"); // 别的语言还没翻：先用英文垫着
+            ruleCode = "en_us";
         }
         if (loaded == null) {
             unavailable = true;
@@ -116,9 +118,16 @@ public final class Lang {
             return;
         }
         table = loaded;
-        DeepseekCompanionClient.LOGGER.info("[XiaoD] language {} loaded ({} strings)", code, table.size());
+        loadRules(ruleCode);
+        DeepseekCompanionClient.LOGGER.info("[XiaoD] language {} loaded ({} strings, {} rules)",
+                code, table.size(), RULES.size());
     }
 
+    /**
+     * 读语言文件。必须是"平铺的 中文→译文"映射（原版语言文件格式），
+     * 这样原版资源加载器不会因为我们的模板规则而报 JsonSyntaxException 跳过整个文件。
+     * 老格式（外面套一层 strings）也认，方便手改。
+     */
     private static Map<String, String> load(String code) {
         try (var stream = Lang.class.getResourceAsStream(ROOT + code + ".json")) {
             if (stream == null) {
@@ -133,31 +142,44 @@ public final class Lang {
                     map.put(entry.getKey(), entry.getValue().getAsString());
                 }
             }
-            if (json.has("rules")) {
-                for (var element : json.getAsJsonArray("rules")) {
-                    JsonObject rule = element.getAsJsonObject();
-                    String zh = rule.get("zh").getAsString();
-                    String en = rule.get("en").getAsString();
-                    String regex = Pattern.quote(zh);
-                    StringBuilder builder = new StringBuilder("^");
-                    int from = 0;
-                    while (true) {
-                        int at = zh.indexOf("%s", from);
-                        if (at < 0) {
-                            builder.append(Pattern.quote(zh.substring(from)));
-                            break;
-                        }
-                        builder.append(Pattern.quote(zh.substring(from, at))).append("(.+?)");
-                        from = at + 2;
-                    }
-                    builder.append('$');
-                    RULES.add(new Rule(Pattern.compile(builder.toString()), en));
-                }
-            }
             return map;
         } catch (Throwable t) {
             DeepseekCompanionClient.LOGGER.warn("[XiaoD] cannot read lang/{}", code, t);
             return null;
+        }
+    }
+
+    /** 模板规则单独一个文件：{@code lang/en_us.rules.json}。 */
+    private static void loadRules(String code) {
+        try (var stream = Lang.class.getResourceAsStream(ROOT + code + ".rules.json")) {
+            if (stream == null) {
+                return;
+            }
+            JsonObject json = JsonParser.parseReader(
+                    new InputStreamReader(stream, StandardCharsets.UTF_8)).getAsJsonObject();
+            if (!json.has("rules") || !json.get("rules").isJsonArray()) {
+                return;
+            }
+            for (var element : json.getAsJsonArray("rules")) {
+                JsonObject rule = element.getAsJsonObject();
+                String zh = rule.get("zh").getAsString();
+                String en = rule.get("en").getAsString();
+                StringBuilder builder = new StringBuilder("^");
+                int from = 0;
+                while (true) {
+                    int at = zh.indexOf("%s", from);
+                    if (at < 0) {
+                        builder.append(Pattern.quote(zh.substring(from)));
+                        break;
+                    }
+                    builder.append(Pattern.quote(zh.substring(from, at))).append("(.+?)");
+                    from = at + 2;
+                }
+                builder.append('$');
+                RULES.add(new Rule(Pattern.compile(builder.toString()), en));
+            }
+        } catch (Throwable t) {
+            DeepseekCompanionClient.LOGGER.warn("[XiaoD] cannot read lang/{}.rules.json", code, t);
         }
     }
 

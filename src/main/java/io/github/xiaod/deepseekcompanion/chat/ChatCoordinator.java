@@ -40,7 +40,16 @@ public final class ChatCoordinator {
     private record Line(String sender, String body) {
     }
 
+    /** 聊天解析包一层：解析器出错只能丢这条消息，不能把聊天 HUD 的 mixin 带崩。 */
     public static void onIncoming(Text message) {
+        try {
+            onIncomingUnsafe(message);
+        } catch (Throwable error) {
+            DeepseekCompanionClient.LOGGER.warn("[XiaoD] chat parse failed, message ignored", error);
+        }
+    }
+
+    private static void onIncomingUnsafe(Text message) {
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc.player == null || message == null) {
             return;

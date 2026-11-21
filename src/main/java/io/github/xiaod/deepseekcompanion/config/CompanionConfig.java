@@ -176,6 +176,30 @@ public final class CompanionConfig {
         if (loaded.protectHeight <= 0) {
             loaded.protectHeight = 24;
         }
+        // 模型参数别让人手改出"请求必然失败"的值：温度 0~2、token 1~8000、超时 5~120 秒
+        if (loaded.temperature < 0.0 || loaded.temperature > 2.0) {
+            loaded.temperature = 0.9;
+        }
+        if (loaded.maxTokens < 1) {
+            loaded.maxTokens = 200;
+        } else if (loaded.maxTokens > 8000) {
+            loaded.maxTokens = 8000;
+        }
+        if (loaded.timeoutSeconds < 5 || loaded.timeoutSeconds > 120) {
+            loaded.timeoutSeconds = 25;
+        }
+        if (loaded.planStepTimeoutSeconds < 15) {
+            loaded.planStepTimeoutSeconds = 120;
+        }
+        if (loaded.planMaxReplans < 0 || loaded.planMaxReplans > 5) {
+            loaded.planMaxReplans = 2;
+        }
+        if (loaded.followDistance < 3 || loaded.followDistance > 64) {
+            loaded.followDistance = 12;
+        }
+        if (loaded.autonomousIntervalSeconds < 10) {
+            loaded.autonomousIntervalSeconds = 45;
+        }
         instance = loaded;
         save();
     }

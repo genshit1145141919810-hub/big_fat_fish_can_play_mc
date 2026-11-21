@@ -12,7 +12,14 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class ClientPlayNetworkHandlerMixin {
     @Inject(method = "sendChatMessage", at = @At("HEAD"), cancellable = true, require = 0)
     private void xiaod$sendChatMessage(String content, CallbackInfo ci) {
-        if (LocalCommandHandler.handle(content)) {
+        try {
+            if (LocalCommandHandler.handle(content)) {
+                ci.cancel();
+            }
+        } catch (Throwable error) {
+            // 命令处理器崩了也不能把这条命令当聊天发到服务器上，更不能炸掉聊天
+            io.github.xiaod.deepseekcompanion.DeepseekCompanionClient.LOGGER
+                    .error("[XiaoD] command failed: {}", content, error);
             ci.cancel();
         }
     }

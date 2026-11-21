@@ -423,7 +423,29 @@ public final class BotBrain {
 
     // ------------------------------------------------------------------ tick
 
+    /** 上一次 tick 报错的内容与时间：同一个错误 5 秒内只记一次日志，别刷屏。 */
+    private static String lastTickError = "";
+    private static long lastTickErrorAt;
+
+    /**
+     * 每个客户端 tick 都会被外部 mixin 调一次。任何控制器里冒出来的异常都只能记日志，
+     * 绝不能让它穿出 tick（穿出去就是每个 tick 抛一次，直接卡死/崩溃游戏）。
+     */
     public static void tick(MinecraftClient mc) {
+        try {
+            tickUnsafe(mc);
+        } catch (Throwable error) {
+            long now = System.currentTimeMillis();
+            String text = String.valueOf(error);
+            if (!text.equals(lastTickError) || now - lastTickErrorAt > 5000L) {
+                lastTickError = text;
+                lastTickErrorAt = now;
+                DeepseekCompanionClient.LOGGER.error("[XiaoD] tick failed (continuing)", error);
+            }
+        }
+    }
+
+    private static void tickUnsafe(MinecraftClient mc) {
         if (mc.player == null || mc.world == null) {
             DimensionWatch.reset(); EventLog.reset(); TestDriver.reset(); avoidanceApplied = false;
             return;
