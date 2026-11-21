@@ -21,10 +21,10 @@
   "depends": {
     "fabricloader": ">=0.16.0",
     "minecraft": "~1.21.11",
-    "java": ">=21"
+    "java": ">=21",
+    "baritone": ">=1.10.0"
   },
   "suggests": {
-    "baritone": "*",
     "xaerominimap": "*"
   },
   "icon": "assets/big_fat_fish_can_play_mc/icon.png"

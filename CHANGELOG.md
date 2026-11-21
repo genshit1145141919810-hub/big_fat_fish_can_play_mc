@@ -20,8 +20,12 @@ Everything below was verified in a real 1.21.11 Fabric client, from a `/clear` w
   now gets a plain XZ goal and walks node by node, checking for trees at every node.
 
 ### Changed
+- **Baritone is a hard dependency**: `fabric.mod.json` declares it under `depends`, so a missing
+  Baritone is reported by the loader at startup instead of the bot silently losing its legs.
+  The Baritone mixin (1.21.x render-thread deadlock fix) still applies only when it is present,
+  and `.xd fair on` still avoids `#mine` while using Baritone for movement.
 - **Mining is Baritone's `#mine` again** for wood as well as ore. The hand-rolled digger is
-  only used when Baritone is missing or `.xd fair on` is active. Wood still respects the
+  only used when `.xd fair on` is active. Wood still respects the
   "don't dig logs below Y" limit: if there is no tree above the floor nearby, the bot looks
   for a forest instead of tunnelling to a mineshaft.
 - **Material bookkeeping matches vanilla tags.** Logs are counted per wood type

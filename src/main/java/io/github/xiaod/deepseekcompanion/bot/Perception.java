@@ -122,22 +122,32 @@ public final class Perception {
         return "盯着空气（前方 24 格没有方块和生物）";
     }
 
-    /** 附近某种方块有多少、最近的在哪个坐标。 */
+    /** 附近某种方块有多少、最近的在哪个坐标。支持逗号分隔的多个方块（同族一起扫）。 */
     public static String scan(MinecraftClient mc, String blockId) {
         ClientPlayerEntity p = mc.player;
         if (p == null || mc.world == null) {
             return "还没进世界";
         }
-        String id = blockId == null ? "" : blockId.strip().toLowerCase(java.util.Locale.ROOT);
-        if (id.startsWith("minecraft:")) {
-            id = id.substring("minecraft:".length());
+        java.util.Set<String> ids = new java.util.LinkedHashSet<>();
+        if (blockId != null) {
+            for (String part : blockId.split(",")) {
+                String id = part.strip().toLowerCase(java.util.Locale.ROOT);
+                if (id.startsWith("minecraft:")) {
+                    id = id.substring("minecraft:".length());
+                }
+                if (!id.isEmpty()) {
+                    ids.add(id);
+                }
+            }
         }
-        if (id.isBlank()) {
+        if (ids.isEmpty()) {
             return "要说扫什么方块";
         }
+        String label = String.join(" 或 ", ids);
         BlockPos origin = p.getBlockPos();
         int count = 0;
         BlockPos nearest = null;
+        String nearestId = null;
         double bestDist = Double.MAX_VALUE;
         int steps = 0;
         for (BlockPos pos : BlockPos.iterateOutwards(origin, 16, 12, 16)) {
@@ -148,7 +158,8 @@ public final class Perception {
             if (state.isAir()) {
                 continue;
             }
-            if (!Registries.BLOCK.getId(state.getBlock()).getPath().equals(id)) {
+            String found = Registries.BLOCK.getId(state.getBlock()).getPath();
+            if (!ids.contains(found)) {
                 continue;
             }
             count++;
@@ -156,13 +167,15 @@ public final class Perception {
             if (distance < bestDist) {
                 bestDist = distance;
                 nearest = pos.toImmutable();
+                nearestId = found;
             }
         }
         if (nearest == null) {
-            return "16 格内没有 " + id;
+            return "16 格内没有 " + label;
         }
-        return id + "：" + count + " 处，最近 (" + nearest.getX() + " " + nearest.getY() + " "
-                + nearest.getZ() + ") 距离 " + Math.round(Math.sqrt(bestDist)) + " 格";
+        return (nearestId == null ? label : nearestId) + "：" + count + " 处，最近 ("
+                + nearest.getX() + " " + nearest.getY() + " " + nearest.getZ() + ") 距离 "
+                + Math.round(Math.sqrt(bestDist)) + " 格";
     }
 
     /** 附近威胁清单：类型、距离、血量；苦力怕单独标引信。 */

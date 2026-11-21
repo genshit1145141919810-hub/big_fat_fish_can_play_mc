@@ -162,7 +162,9 @@ public final class CombatController {
         // 2) 进入攻击距离：控距打法——贴脸先退、够得着才打，别站着挨揍
         if (hostile != null) {
             double gap = Math.sqrt(hostile.squaredDistanceTo(p));
-            if (gap <= MELEE_REACH * MELEE_REACH) {
+            // gap 已经是"格"了，别再平方：以前这里和 MELEE_REACH²（10.24 格）对比，
+            // 于是十个格开外就进战斗分支、对着空气挥剑，反而走不到怪跟前
+            if (gap <= MELEE_REACH) {
                 if (gap < KEEP_MIN) {
                     driftBack(p, hostile, now); // 边退边打：只退一点点，攻击照常
                 }

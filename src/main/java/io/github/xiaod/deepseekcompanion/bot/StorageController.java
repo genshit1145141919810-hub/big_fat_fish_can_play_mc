@@ -38,6 +38,8 @@ public final class StorageController {
 
     private static final Deque<Click> QUEUE = new ArrayDeque<>();
     private static final Set<String> WANTED = new HashSet<>();
+    /** 这一次真正搬进/搬出箱子的物品：收尾时记进 Memory，下次开箱子还认得。 */
+    private static final Set<String> MOVED = new java.util.LinkedHashSet<>();
     private static Mode mode = Mode.NONE;
     private static Phase phase = Phase.FIND;
     private static BlockPos chestPos;
@@ -151,7 +153,14 @@ public final class StorageController {
             case CLOSE -> {
                 if (now >= until) {
                     p.closeHandledScreen();
+                    boolean wasStore = mode == Mode.STORE;
                     mode = Mode.NONE;
+                    // 记一下这个箱子放过什么：跨会话的"去箱子拿"就靠这条记忆
+                    if (chestPos != null && !MOVED.isEmpty()) {
+                        Memory.noteStash(chestPos, HomeZone.dimensionOf(mc),
+                                String.join(",", MOVED) + (wasStore ? "" : " (taken)"));
+                    }
+                    MOVED.clear();
                     DeepseekCompanionClient.LOGGER.info("[XiaoD] storage action done");
                 }
             }
@@ -160,6 +169,7 @@ public final class StorageController {
 
     private static void buildClicks(MinecraftClient mc, ScreenHandler handler) {
         PlayerInventory inventory = mc.player.getInventory();
+        MOVED.clear();
         int limit = 24;
         if (mode == Mode.STORE) {
             for (int index = 0; index < 36 && QUEUE.size() < limit; index++) {
@@ -170,6 +180,7 @@ public final class StorageController {
                 int slot = handlerSlot(handler, inventory, index);
                 if (slot >= 0) {
                     QUEUE.add(new Click(slot, 0, SlotActionType.QUICK_MOVE));
+                    MOVED.add(Registries.ITEM.getId(stack.getItem()).getPath());
                 }
             }
         } else {
@@ -182,6 +193,7 @@ public final class StorageController {
                 }
                 if (WANTED.contains(Registries.ITEM.getId(slot.getStack().getItem()).getPath())) {
                     QUEUE.add(new Click(slot.id, 0, SlotActionType.QUICK_MOVE));
+                    MOVED.add(Registries.ITEM.getId(slot.getStack().getItem()).getPath());
                 }
             }
         }

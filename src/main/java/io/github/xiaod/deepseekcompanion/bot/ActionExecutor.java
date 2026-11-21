@@ -71,7 +71,7 @@ public final class ActionExecutor {
                 yield true;
             }
             case MINE -> {
-                String id = firstBlockId(intent.arg());
+                String id = nearestBlockId(mc, intent.arg());
                 boolean ok = false;
                 boolean nearProtected = HomeZone.protectedTargetNear(mc, id, false, 24) != null;
                 if (BaritoneBridge.available() && !nearProtected) {
@@ -247,11 +247,39 @@ public final class ActionExecutor {
     }
 
     /** "iron_ore,coal_ore" -> "iron_ore"; the miner works one type at a time. */
-    public static String firstBlockId(String list) {        if (list == null || list.isBlank()) {
+    public static String firstBlockId(String list) {
+        if (list == null || list.isBlank()) {
             return "iron_ore";
         }
         String first = list.split(",")[0].trim().toLowerCase(java.util.Locale.ROOT);
         return first.startsWith("minecraft:") ? first.substring("minecraft:".length()) : first;
+    }
+
+    /**
+     * 一串方块里挑"最近的那个"：Baritone 一次只挖一种，选到远处那种会白跑一趟。
+     * 附近一个都看不见（或不是方块）就退回第一个。
+     */
+    public static String nearestBlockId(MinecraftClient mc, String list) {
+        if (list == null || list.isBlank()) {
+            return "iron_ore";
+        }
+        String best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (String raw : list.split(",")) {
+            String id = raw.trim().toLowerCase(java.util.Locale.ROOT);
+            if (id.startsWith("minecraft:")) {
+                id = id.substring("minecraft:".length());
+            }
+            if (id.isEmpty()) {
+                continue;
+            }
+            double distance = MiningController.nearestDistance(mc, id, 96);
+            if (distance >= 0 && distance < bestDistance) {
+                bestDistance = distance;
+                best = id;
+            }
+        }
+        return best != null ? best : firstBlockId(list);
     }
 
     /**

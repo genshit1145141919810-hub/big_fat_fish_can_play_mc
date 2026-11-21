@@ -85,7 +85,6 @@ public final class ContainerController {
     }
     private static final java.util.Deque<CraftStep> CRAFT_Q = new java.util.ArrayDeque<>();
     private static long craftStepDeadline;
-    private static int takeRetries;
     /** 两次合成点击之间至少隔这么久：服务器按顺序处理点击，太快会挤在一起。 */
     private static final long CRAFT_CLICK_INTERVAL_MS = 60L;
     private static long nextCraftClickAt;
@@ -93,8 +92,6 @@ public final class ContainerController {
     private static int craftBaseline;
     private static long craftFinishAt;
     private static int craftRetries;
-    /** 取成品前的短暂等待：客户端结果槽偶尔比最后一次点击晚一两个 tick。 */
-    private static long takeWaitUntil;
 
     private ContainerController() {
     }
@@ -638,8 +635,6 @@ public final class ContainerController {
             }
             if (ok) {
                 CRAFT_Q.clear();
-                takeRetries = 0;
-                takeWaitUntil = 0L;
                 // 1) 先清空合成格：一格一个动作，清完再摆（同一批里清+摆会落错格）
                 for (int cell = 1; cell <= gridWidth * gridWidth; cell++) {
                     if (!handler.slots.get(cell).getStack().isEmpty()) {

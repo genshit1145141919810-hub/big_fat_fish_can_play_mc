@@ -62,6 +62,8 @@
 4. 启动一次，编辑 `config/deepseek-companion.json`：填 `apiKey`、`botAccount`、`ownerName`
 5. 用**小号**登录，聊天框敲 `.xd status`
 
+> **Baritone 是硬依赖**（从 0.5 开始 `fabric.mod.json` 里 `depends` 写了它，缺了会直接提示依赖缺失）。
+> 走、挖、砍、跨维度全都靠它；`fair on` 模式仍然可以不用 Baritone 的 `#mine`，但移动还是它。
 > 模组**不打包 Baritone**。它自带一个 mixin 修掉 Baritone 1.21.x 的渲染线程死锁；
 > 如果你更想改 Baritone 本体，用 `tools/PatchBaritone.java` 把同样的补丁烧进它的 jar。
 

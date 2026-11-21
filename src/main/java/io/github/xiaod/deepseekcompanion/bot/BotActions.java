@@ -35,6 +35,9 @@ public final class BotActions {
         EnchantPicker.cancel(mc);
         GiveController.cancel();
         PortalController.cancel(mc);
+        // 这两个以前没清：喊停之后"还没放下去的那一下"和"正在往下挖的井"都会继续
+        PlacementController.cancel();
+        DigController.cancel(mc);
         TaskTracker.clear();
         FleeController.clear();
         BaritoneBridge.stop();

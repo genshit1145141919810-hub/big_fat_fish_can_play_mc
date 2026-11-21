@@ -133,10 +133,14 @@ public final class Memory {
 
     /** 记录一个存过东西的箱子位置（同坐标会覆盖）。 */
     public static synchronized void noteStash(BlockPos pos, String dimension, String hint) {
+        if (pos == null) {
+            return;
+        }
+        String dim = dimension == null ? "" : dimension;
         Data d = get();
         for (Stash stash : d.stashes) {
             if (stash.x == pos.getX() && stash.y == pos.getY() && stash.z == pos.getZ()
-                    && stash.dimension.equals(dimension)) {
+                    && (stash.dimension == null ? "" : stash.dimension).equals(dim)) {
                 stash.hint = hint == null ? "" : hint;
                 stash.updatedAt = System.currentTimeMillis();
                 dirty = true;
@@ -145,7 +149,7 @@ public final class Memory {
             }
         }
         Stash stash = new Stash();
-        stash.dimension = dimension == null ? "" : dimension;
+        stash.dimension = dim;
         stash.x = pos.getX();
         stash.y = pos.getY();
         stash.z = pos.getZ();

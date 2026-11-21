@@ -40,7 +40,7 @@ public record Plan(String say, List<Step> steps) {
         } catch (Exception e) {
             throw new ActionValidator.FormatException("JSON 解析失败");
         }
-        String say = obj.has("say") && !obj.get("say").isJsonNull()
+        String say = obj.has("say") && !obj.get("say").isJsonNull() && obj.get("say").isJsonPrimitive()
                 ? ActionValidator.sanitizeSay(obj.get("say").getAsString()) : "";
         // 模型偶尔会把数组叫成 steps/actions，或者干脆只回一个单步 act：
         // 都按"计划"接受，别因为键名不同就把整次规划判死

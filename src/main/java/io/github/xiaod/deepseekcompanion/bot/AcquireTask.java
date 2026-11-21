@@ -32,7 +32,15 @@ import java.util.Set;
  */
 public final class AcquireTask {
     private static final int MAX_STEPS = 48;
-    private static final int MAX_DEPTH = 6;
+    /**
+     * 依赖图最多展开几层。铁镐这种链本身就不浅：铁镐 → 铁锭 → 粗铁 → 铁矿 →
+     * 石镐 → 圆石 → 木镐 → 木板 → 原木，再加上燃料，六七层是不够的
+     * （以前会报"oak_log 套得太深"，然后退化成"去挖木板"这种离谱路线）。
+     * 环由 {@link #PATH} 拦住，深度只是防御，不是主要约束。
+     */
+    private static final int MAX_DEPTH = 14;
+    /** 诊断里最多留几条失败说明：深度搜索会刷出上千条，全塞进去没法看。 */
+    private static final int MAX_NOTES = 24;
     private static final int MAX_CANDIDATES = 4;
     private static final int MAX_REPLANS = 3;
     private static final int PLACE_ATTEMPTS = 3;
@@ -162,7 +170,6 @@ public final class AcquireTask {
     private static int baseline;
     private static int verifications;
     private static int mineRetries;
-    private static int mineDryStreak;
     private static int explores;
     /** 当前方向已经走了几个探索节点。 */
     private static int exploreNodes;
@@ -375,7 +382,6 @@ public final class AcquireTask {
         replans = 0;
         explores = 0;
         exploreNodes = 0;
-        mineDryStreak = 0;
         NO_CRAFT.clear();
         CRAFT_FAILS.clear();
         NO_WOOD.clear();
@@ -450,11 +456,11 @@ public final class AcquireTask {
         List<Step> steps = new ArrayList<>();
         emit(item, steps);
         if (steps.isEmpty()) {
-            NOTES.add("已经有 " + item + " 了");
+            notes("已经有 " + item + " 了");
             return null;
         }
         if (steps.size() > MAX_STEPS) {
-            NOTES.add("步骤太多（" + steps.size() + " 步）");
+            notes("步骤太多（" + steps.size() + " 步）");
             return null;
         }
         return coalesce(steps);
@@ -491,16 +497,29 @@ public final class AcquireTask {
         return input != null && input.equals(item + "_block");
     }
 
+    /**
+     * 依赖图最多展开几层。铁镐这种链本身就不浅：铁镐 → 铁锭 → 粗铁 → 铁矿 →
+     * 石镐 → 圆石 → 木镐 → 木板 → 原木，再加上燃料，六七层是不够的
+     * （以前会报"oak_log 套得太深"，然后退化成"去挖木板"这种离谱路线）。
+     * 环由 {@link #PATH} 拦住，深度只是防御，不是主要约束。
+     */
+    /** 记一条失败说明（有上限，避免深层搜索把诊断刷爆）。 */
+    private static void notes(String text) {
+        if (NOTES.size() < MAX_NOTES) {
+            NOTES.add(text);
+        }
+    }
+
     private static boolean structure(String item, int depth, int need, CraftRecipes.Recipe forcedTop) {
         if (STRUCT.containsKey(item)) {
             return true;
         }
         if (PATH.contains(item)) {
-            NOTES.add(item + " 绕回了自己");
+            notes(item + " 绕回了自己");
             return false;
         }
         if (depth > MAX_DEPTH) {
-            NOTES.add(item + " 套得太深");
+            notes(item + " 套得太深");
             return false;
         }
         PATH.add(item);
@@ -532,11 +551,11 @@ public final class AcquireTask {
                 }
             }
             String block = blockFor(item);
-            if (NO_CRAFT.contains(item)) {
-                // 合成这条路已经证明料不够了；木板、木棍这种东西又没有天然可挖的，
-                // 硬去"挖木板"只会白折腾，直接说这条来源不成，让调用方换材料/换路线
-                NOTES.add(item + " 合成料不够，也没有别的来源");
-                TRACE.add(item + "(深度" + depth + ")：合成料不够");
+            if (NO_CRAFT.contains(item) || craftedOnly(item)) {
+                // 合成这条路走不通、而这种东西又不会天然生成（木板、木棍…）：
+                // 别把它当矿物去"挖"，直接说这条来源不成，让调用方换材料/换路线
+                notes(item + " 只能合成，挖不到");
+                TRACE.add(item + "(深度" + depth + ")：只能合成");
                 return false;
             }
             if (block != null && structureMine(item, block, depth)) {
@@ -550,7 +569,7 @@ public final class AcquireTask {
                 STRUCT.put(item, new Prod(Op.HUNT, mob, "", null, false, false));
                 return true;
             }
-            NOTES.add("不知道 " + item + " 从哪来");
+            notes("不知道 " + item + " 从哪来");
             TRACE.add(item + "(深度" + depth + ")：无配方/不可挖/不可烧");
             return false;
         } finally {
@@ -565,11 +584,11 @@ public final class AcquireTask {
             }
             String dep = resolveToken(cell);
             if (dep == null) {
-                NOTES.add(item + " 的配方里有认不出的材料");
+                notes(item + " 的配方里有认不出的材料");
                 return false;
             }
             if (!structure(dep, depth + 1, 1, null)) {
-                NOTES.add(item + " 缺 " + dep);
+                notes(item + " 缺 " + dep);
                 return false;
             }
         }
@@ -577,18 +596,36 @@ public final class AcquireTask {
         if (needsTable && !STRUCT.containsKey("crafting_table")
                 && !ContainerController.tableNearby(MinecraftClient.getInstance()) && count(MinecraftClient.getInstance(), "crafting_table") <= 0
                 && !structure("crafting_table", depth + 1, 1, null)) {
-            NOTES.add(item + " 要工作台，但做不出工作台");
+            notes(item + " 要工作台，但做不出工作台");
             return false;
         }
         STRUCT.put(item, new Prod(Op.CRAFT, item, "", recipe, needsTable, false));
         return true;
     }
 
+    /** 只能合成出来、不会天然生成的东西：木板/木棍/楼梯/栅栏…，规划时不能当成"去挖"。 */
+    private static boolean craftedOnly(String item) {
+        if (item == null) {
+            return false;
+        }
+        if (item.equals("stick") || item.equals("bricks") || item.equals("glass") || item.equals("charcoal")) {
+            return true;
+        }
+        for (String suffix : List.of("_planks", "_slab", "_stairs", "_fence", "_fence_gate", "_door",
+                "_trapdoor", "_button", "_pressure_plate", "_carpet", "_sign", "_wall", "_bars",
+                "_pane", "_stick", "_bricks")) {
+            if (item.endsWith(suffix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean structureMine(String item, String block, int depth) {
         String tool = TOOL_TIER.get(block);
         if (tool != null && count(MinecraftClient.getInstance(), tool) <= 0
                 && !structure(tool, depth + 1, 1, null)) {
-            NOTES.add("挖 " + block + " 要 " + tool + "，弄不到");
+            notes("挖 " + block + " 要 " + tool + "，弄不到");
             return false;
         }
         STRUCT.put(item, new Prod(Op.MINE, block, tool == null ? "" : tool, null, false, false));
@@ -618,16 +655,16 @@ public final class AcquireTask {
                 continue;
             }
             if (!furnaceNear && !structure("furnace", depth + 1, 1, null)) {
-                NOTES.add(item + " 要熔炉，但做不出熔炉");
+                notes(item + " 要熔炉，但做不出熔炉");
                 continue;
             }
             if (!structure(ore, depth + 1, 1, null)) {
-                NOTES.add(item + " 缺 " + ore);
+                notes(item + " 缺 " + ore);
                 continue;
             }
             String fuel = pickFuel(depth, need);
             if (fuel == null) {
-                NOTES.add(item + " 没有燃料");
+                notes(item + " 没有燃料");
                 continue;
             }
             STRUCT.put(item, new Prod(Op.SMELT, ore, fuel, null, false, !furnaceNear));
@@ -668,7 +705,10 @@ public final class AcquireTask {
         fuels.add("charcoal");
         fuels.addAll(List.of("oak_planks", "spruce_planks", "birch_planks", "oak_log"));
         for (String fuel : new LinkedHashSet<>(fuels)) {
-            if (count(MinecraftClient.getInstance(), fuel) >= n || structure(fuel, depth + 1, n, null)) {
+            // 燃料是"独立的小问题"：从深度 0 重新算。以前接着当前深度往下算，
+            // 铁镐这种四五层深的链走到燃料时刚好把预算用光（"oak_log 套得太深"），
+            // 于是退化成"去挖木板"这种离谱路线
+            if (count(MinecraftClient.getInstance(), fuel) >= n || structure(fuel, 0, n, null)) {
                 return fuel;
             }
         }
@@ -750,7 +790,7 @@ public final class AcquireTask {
                 }
                 Prod prod = STRUCT.get(item);
                 if (prod == null) {
-                    NOTES.add("不知道 " + item + " 从哪来");
+                    notes("不知道 " + item + " 从哪来");
                     return false;
                 }
                 int missing = total - Math.min(countAny(MinecraftClient.getInstance(), item), total);
@@ -767,7 +807,7 @@ public final class AcquireTask {
                             }
                             String dep = resolveToken(cell);
                             if (dep == null) {
-                                NOTES.add(item + " 的配方里有认不出的材料");
+                                notes(item + " 的配方里有认不出的材料");
                                 return false;
                             }
                             next.merge(dep, crafts, Integer::sum);
@@ -933,7 +973,6 @@ public final class AcquireTask {
         doneSteps = 0;
         placeAttempts = 0;
         mineRetries = 0;
-        mineDryStreak = 0;
         stepSince = System.currentTimeMillis();
         statusText = "获取 " + goalItem + "（路线 " + (candidateIndex + 1) + "/" + CANDIDATES.size() + "）";
     }
@@ -943,7 +982,7 @@ public final class AcquireTask {
         if (!PLAN.isEmpty()) {
             STEP_RESULT.put(PLAN.peek().toString(), "✘ " + reason);
         }
-        NOTES.add("路线 " + (candidateIndex + 1) + " 失败：" + reason);
+        notes("路线 " + (candidateIndex + 1) + " 失败：" + reason);
         candidateIndex++;
         if (candidateIndex >= CANDIDATES.size()) {
             fail(mc, "所有路线都试过了（" + reason + "）");
@@ -1098,8 +1137,7 @@ public final class AcquireTask {
             stepStarted = false;
             stepSince = now;
             verifyUntil = 0L;
-            mineDryStreak = 0;
-            mineRetries = 0;
+                mineRetries = 0;
             if (!planNeedsStation()) {
                 // 后面不再需要工作台/熔炉：刚用完就收回来，别丢在原地
                 PlacedBlocks.recoverAll();
@@ -1463,8 +1501,7 @@ public final class AcquireTask {
             PLAN.poll();
             stepStarted = false;
             stepSince = now;
-            mineDryStreak = 0;
-            mineRetries = 0;
+                mineRetries = 0;
             return;
         }
         double moved = 0.0;

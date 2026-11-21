@@ -44,9 +44,12 @@ public record Intent(String say, BotAction action, String arg, String pluginActi
         } catch (Exception e) {
             return sayOnly(cleaned);
         }
-        String say = obj.has("say") && !obj.get("say").isJsonNull() ? obj.get("say").getAsString() : "";
-        String actRaw = obj.has("act") && !obj.get("act").isJsonNull() ? obj.get("act").getAsString() : "idle";
-        String argRaw = obj.has("arg") && !obj.get("arg").isJsonNull() ? obj.get("arg").getAsString() : "";
+        String say = text(obj, "say");
+        String actRaw = text(obj, "act");
+        if (actRaw.isBlank()) {
+            actRaw = "idle";
+        }
+        String argRaw = text(obj, "arg");
 
         String act = actRaw.strip().toLowerCase(Locale.ROOT);
         if (act.isEmpty() || act.equals("none") || act.equals("null")) {
@@ -96,6 +99,22 @@ public record Intent(String say, BotAction action, String arg, String pluginActi
             return new Intent(pick(t, "来了，交给我。", "别怕，我顶上。"), BotAction.FIGHT, "");
         }
         return sayOnly("");
+    }
+
+    /** 只取字符串/数字/布尔；模型偶尔把字段写成对象或数组，不能被它带崩。 */
+    private static String text(JsonObject obj, String key) {
+        if (obj == null || !obj.has(key)) {
+            return "";
+        }
+        var element = obj.get(key);
+        if (element == null || element.isJsonNull() || !element.isJsonPrimitive()) {
+            return "";
+        }
+        try {
+            return element.getAsString();
+        } catch (Throwable ignored) {
+            return "";
+        }
     }
 
     private static boolean containsAny(String text, String... needles) {

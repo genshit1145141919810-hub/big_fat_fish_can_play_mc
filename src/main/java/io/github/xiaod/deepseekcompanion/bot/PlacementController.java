@@ -69,6 +69,15 @@ public final class PlacementController {
         return false;
     }
 
+    /** 停手：把还没放下去的那一下和拆空地的动作都取消掉。 */
+    public static void cancel() {
+        pendingItem = null;
+        pendingUntil = 0L;
+        clearTarget = null;
+        clearStarted = false;
+        clearStartedAt = 0L;
+    }
+
     private static void tickClear(MinecraftClient mc) {
         if (clearTarget == null || mc.player == null || mc.world == null || mc.interactionManager == null) {
             clearTarget = null;
